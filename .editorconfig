@@ -10,3 +10,6 @@ spelling_languages = en-us
 spelling_use_default_exclusion_dictionary = true
 # 自分の除外辞書を指定
 spelling_exclusion_path = ./exclusion.dic
+# hlslとhlsliもutf8で保存
+[*.{cpp,h,hlsl,hlsli}]
+charset = utf-8
