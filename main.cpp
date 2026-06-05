@@ -725,6 +725,12 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 				{ 0.0f, 0.0f, 0.0f }  // 平行移動 (なし)
 	};
 
+	Vector4 triangleColor{
+		1.0f,
+		0.0f,
+		0.0f,
+		1.0f
+	};
 
 	// ======================================================
 	// ImGui初期化
@@ -758,13 +764,19 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
-
-
-
-			transform.rotate.y += 0.03f;
-
+			
 			// ImGuiのデモウィンドウ表示
-			ImGui::ShowDemoWindow();
+			ImGui::Begin("Settings");
+
+			ImGui::ColorEdit4("Color",&triangleColor.x);
+
+			ImGui::DragFloat3("Scale",&transform.scale.x,0.01f);
+
+			ImGui::DragFloat3("Rotate",&transform.rotate.x,0.01f);
+
+			ImGui::DragFloat3("Translate",&transform.translate.x,0.01f);
+
+			ImGui::End();
 
 
 			// 各種行列の作成
@@ -777,6 +789,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 			// まとめた行列をシェーダーへ送るデータに書き込む
 			*wvpData = wvpMatrix;
+
+			*materialData = triangleColor;
 
 			//これから書き込むバックバッファのインデックスを取得
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();

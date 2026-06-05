@@ -362,3 +362,11 @@ DirectXGame/imgui.ini
 
 *.log
 /logs
+
+*.dmp
+Dumps/
+
+imgui.ini
+
+[externals/**]
+Generated_Code = true
