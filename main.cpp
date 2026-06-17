@@ -641,21 +641,56 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int)
 
 	TransformationMatrix* transformationMatrixData = nullptr;
 
+	Vector3 scale = { 1.0f,1.0f,1.0f };
+	Vector3 rotate = { 0.0f,0.0f,0.0f };
+	Vector3 translate = { 0.0f,0.0f,0.0f };
+
+	Vector3 cameraScale = { 1.0f,1.0f,1.0f };
+	Vector3 cameraRotate = { 0.0f,0.0f,0.0f };
+	Vector3 cameraTranslate = { 0.0f,0.0f,-5.0f };
+
+	Matrix4x4 worldMatrix =
+		Matrix4x4::MakeAffineMatrix(
+			scale,
+			rotate,
+			translate
+		);
+
+	Matrix4x4 cameraMatrix =
+		Matrix4x4::MakeAffineMatrix(
+			cameraScale,
+			cameraRotate,
+			cameraTranslate
+		);
+
+	Matrix4x4 viewMatrix =
+		Matrix4x4::Inverse(cameraMatrix);
+
+	Matrix4x4 projectionMatrix =
+		Matrix4x4::MakePerspectiveFovMatrix(
+			0.45f,
+			float(kClientWidth) / float(kClientHeight),
+			0.1f,
+			100.0f
+		);
+
+	Matrix4x4 worldViewProjectionMatrix =
+		Matrix4x4::Multiply(
+			worldMatrix,
+			Matrix4x4::Multiply(
+				viewMatrix,
+				projectionMatrix
+			)
+		);
+
 	transformationMatrixResource->Map(
 		0,
 		nullptr,
 		reinterpret_cast<void**>(&transformationMatrixData)
 	);
 
-	Matrix4x4 identity = {
-	1.0f,0.0f,0.0f,0.0f,
-	0.0f,1.0f,0.0f,0.0f,
-	0.0f,0.0f,1.0f,0.0f,
-	0.0f,0.0f,0.0f,1.0f
-	};
-
-	transformationMatrixData->World = identity;
-	transformationMatrixData->WVP = identity;
+	transformationMatrixData->World = worldMatrix;
+	transformationMatrixData->WVP = worldViewProjectionMatrix;
 
 	// Resources/uvChecker.png をロード
 	std::vector<uint8_t> textureData;
