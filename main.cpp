@@ -837,12 +837,40 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	vertexResourceDesc.SampleDesc.Count = 1;
 	//バッファの場合はこれにする決まり
 	vertexResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
 	//実際に頂点リソースを作る
 	ID3D12Resource* vertexResource = CreateBufferResource(device, sizeof(VertexData) * 6);
 	hr = device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE,
 	&vertexResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
 	IID_PPV_ARGS(&vertexResource));
 	assert(SUCCEEDED(hr));
+
+	// ============================================================
+	// Sprite用VertexResource
+	// ============================================================
+	ID3D12Resource* vertexResourceSprite = CreateBufferResource(device, sizeof(VertexData) * 6);
+	// 頂点バッファビュー
+	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSprite{};
+	// リソースの先頭アドレス
+	vertexBufferViewSprite.BufferLocation = vertexResourceSprite->GetGPUVirtualAddress();
+	// 使用するサイズ
+	vertexBufferViewSprite.SizeInBytes = sizeof(VertexData) * 6;
+	// 1頂点あたりのサイズ
+	vertexBufferViewSprite.StrideInBytes = sizeof(VertexData);
+
+	// Sprite用TransformationMatrixResource
+	ID3D12Resource* transformationMatrixResourceSprite =
+		CreateBufferResource(device, sizeof(Matrix4x4));
+
+	Matrix4x4* transformationMatrixDataSprite = nullptr;
+
+	transformationMatrixResourceSprite->Map(
+		0,
+		nullptr,
+		reinterpret_cast<void**>(&transformationMatrixDataSprite)
+	);
+
+	*transformationMatrixDataSprite = Matrix4x4::MakeIdentity4x4();
 
 
 	// ============================================================
@@ -868,27 +896,39 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	//左下
 	vertexData[0].position = { -0.5f, -0.5f, 0.0f, 1.0f };
 	vertexData[0].texcoord = { 0.0f, 1.0f };
-
 	// 上
 	vertexData[1].position = { 0.0f, 0.5f, 0.0f, 1.0f };
 	vertexData[1].texcoord = { 0.5f, 0.0f };
-
 	// 右下
 	vertexData[2].position = { 0.5f, -0.5f, 0.0f, 1.0f };
 	vertexData[2].texcoord = { 1.0f, 1.0f };
-
-
 	// 左下2
 	vertexData[3].position = { -0.5f, -0.5f, 0.5f, 1.0f };
 	vertexData[3].texcoord = { 0.0f, 1.0f };
-
 	// 上2
 	vertexData[4].position = { 0.0f, 0.5f, 0.0f, 1.0f };
 	vertexData[4].texcoord = { 0.5f, 0.0f };
-
 	// 右下2
 	vertexData[5].position = { 0.5f, -0.5f, -0.5f, 1.0f };
 	vertexData[5].texcoord = { 1.0f, 1.0f };
+
+	VertexData* vertexDataSprite = nullptr;
+	vertexResourceSprite->Map(0,nullptr,reinterpret_cast<void**>(&vertexDataSprite));
+	// 1枚目の三角形
+	vertexDataSprite[0].position = { 0.0f, 360.0f, 0.0f, 1.0f };
+	vertexDataSprite[0].texcoord = { 0.0f, 1.0f };
+	vertexDataSprite[1].position = { 0.0f, 0.0f, 0.0f, 1.0f };
+	vertexDataSprite[1].texcoord = { 0.0f, 0.0f };
+	vertexDataSprite[2].position = { 640.0f, 360.0f, 0.0f, 1.0f };
+	vertexDataSprite[2].texcoord = { 1.0f, 1.0f };
+	// 2枚目の三角形
+	vertexDataSprite[3].position = { 0.0f, 0.0f, 0.0f, 1.0f };
+	vertexDataSprite[3].texcoord = { 0.0f, 0.0f };
+	vertexDataSprite[4].position = { 640.0f, 0.0f, 0.0f, 1.0f };
+	vertexDataSprite[4].texcoord = { 1.0f, 0.0f };
+	vertexDataSprite[5].position = { 640.0f, 360.0f, 0.0f, 1.0f };
+	vertexDataSprite[5].texcoord = { 1.0f, 1.0f };
+
 
 	// マテリアル用のリソースを作る。今回はcolor1つ分のサイズを用意する
 	ID3D12Resource* materialResource = CreateBufferResource(device, sizeof(Vector4));
@@ -907,6 +947,9 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	wvpResource->Map(0, nullptr, reinterpret_cast<void**>(&wvpData));
 	// 単位行列を書き込んでおく
 	*wvpData = Matrix4x4::MakeIdentity4x4();
+
+
+
 
 	//ビューポート
 	D3D12_VIEWPORT viewport{};
@@ -927,9 +970,15 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	scissorRect.bottom = kClientHeight;
 
 	Transform transform{
-				{ 1.0f, 1.0f, 1.0f }, // 拡大縮小 (等倍)
-				{ 0.0f, 0.0f, 0.0f }, // 回転 (なし)
-				{ 0.0f, 0.0f, 0.0f }  // 平行移動 (なし)
+			{ 1.0f, 1.0f, 1.0f }, // 拡大縮小 (等倍)
+			{ 0.0f, 0.0f, 0.0f }, // 回転 (なし)
+			{ 0.0f, 0.0f, 0.0f }  // 平行移動 (なし)
+	};
+	// CPU用
+	Transform transformSprite{
+		{1.0f,1.0f,1.0f},
+		{0.0f,0.0f,0.0f},
+		{0.0f,0.0f,0.0f}
 	};
 
 
@@ -1013,10 +1062,17 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			// 各種行列の作成
 			Matrix4x4 worldMatrix = Matrix4x4::Multiply(Matrix4x4::MakeScaleMatrix(transform.scale), Matrix4x4::Multiply(Matrix4x4::MakeRotateMatrix(transform.rotate), Matrix4x4::MakeTranslateMatrix(transform.translate)));
 			Matrix4x4 viewMatrix = Matrix4x4::MakeIdentity4x4();      
-			Matrix4x4 projectionMatrix = Matrix4x4::MakeIdentity4x4(); 
-
+			Matrix4x4 projectionMatrix = Matrix4x4::MakeIdentity4x4();
 			// 行列の合成 (WVP = World * View * Projection)
 			Matrix4x4 wvpMatrix = Matrix4x4::Multiply(worldMatrix, Matrix4x4::Multiply(viewMatrix, projectionMatrix));
+
+			// Sprite用WorldViewProjectionMatrix
+			Matrix4x4 worldMatrixSprite = Matrix4x4::MakeAffineMatrix(transformSprite.scale,transformSprite.rotate,transformSprite.translate);
+			Matrix4x4 viewMatrixSprite = Matrix4x4::MakeIdentity4x4();
+			Matrix4x4 projectionMatrixSprite = Matrix4x4::MakeOrthographicMatrix(0.0f,0.0f,float(kClientWidth),float(kClientHeight),0.0f,100.0f);
+			Matrix4x4 worldViewProjectionMatrixSprite = Matrix4x4::Multiply(worldMatrixSprite,Matrix4x4::Multiply(viewMatrixSprite, projectionMatrixSprite));
+			*transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
+
 
 			// まとめた行列をシェーダーへ送るデータに書き込む
 			*wvpData = wvpMatrix;
@@ -1069,6 +1125,13 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 			// 描画!(DrawCall/ドローコール)。3頂点で1つのインスタンス。インスタンスについては今後
 			commandList->DrawInstanced(6, 1, 0, 0);
+
+			// Sprite描画
+			commandList->IASetVertexBuffers(0,1,&vertexBufferViewSprite);
+			// TransformationMatrixCBufferの場所を設定
+			commandList->SetGraphicsRootConstantBufferView(1,transformationMatrixResourceSprite->GetGPUVirtualAddress());
+			// 描画！（DrawCall/ドローコール）
+			commandList->DrawInstanced(6,1,0,0);
 
 			ImGui::Render();
 
