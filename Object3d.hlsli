@@ -13,6 +13,7 @@ struct VertexShaderOutput{
 struct Material{
     float4 color;
     int enableLighting;
+    float4x4 uvTransform;
 };
 
 struct TransformationMatrix{

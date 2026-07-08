@@ -31,27 +31,30 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 
 // 頂点データ構造体
 struct Vector4 { float x, y, z, w; };
-struct Vector3 { float x, y, z; }; // 追加：法線用
+struct Vector3 { float x, y, z; }; // 法線用
 struct Vector2 { float u, v; };
 
 struct Vertex {
 	Vector4 position;
 	Vector2 texcoord;
-	Vector3 normal; // 【拡張】スライド5ページ：法線情報の追加
-};
-
-// マテリアル・行列用構造体
-struct Material {
-	Vector4 color;
-	int32_t enableLighting; // 【拡張】スライド8ページ：Lighting有効フラグ
-	float padding[3];       // 16バイトアライメント（定数バッファ用）
+	Vector3 normal; // 法線情報の追加
 };
 
 struct Matrix4x4 { float m[4][4]; };
 
+// マテリアル・行列用構造体
+struct Material {
+	Vector4 color;
+	int32_t enableLighting; // Lighting有効フラグ
+	float padding[3];       // 16バイトアライメント（定数バッファ用）
+	Matrix4x4 uvTransform;
+};
+
+
+
 struct TransformationMatrix {
 	Matrix4x4 wvp;
-	Matrix4x4 world; // 【拡張】スライド11ページ：法線変換用のWorld行列を追加
+	Matrix4x4 world; // 法線変換用のWorld行列を追加
 };
 
 struct Transform {
@@ -129,6 +132,29 @@ Matrix4x4 MakeAffineMatrix(const float scale[3], const float rotate[3], const fl
 	Matrix4x4 mTranslate = MakeIdentity4x4();
 	mTranslate.m[3][0] = translate[0]; mTranslate.m[3][1] = translate[1]; mTranslate.m[3][2] = translate[2];
 	return Multiply(Multiply(mScale, mRotate), mTranslate);
+}
+
+Matrix4x4 MakeScaleMatrix(const float scale[3]) {
+	Matrix4x4 result = MakeIdentity4x4();
+	result.m[0][0] = scale[0];
+	result.m[1][1] = scale[1];
+	result.m[2][2] = scale[2];
+	return result;
+}
+
+Matrix4x4 MakeRotateZMatrix(float theta) {
+	Matrix4x4 result = MakeIdentity4x4();
+	result.m[0][0] = std::cos(theta);  result.m[0][1] = std::sin(theta);
+	result.m[1][0] = -std::sin(theta); result.m[1][1] = std::cos(theta);
+	return result;
+}
+
+Matrix4x4 MakeTranslateMatrix(const float translate[3]) {
+	Matrix4x4 result = MakeIdentity4x4();
+	result.m[3][0] = translate[0];
+	result.m[3][1] = translate[1];
+	result.m[3][2] = translate[2];
+	return result;
 }
 
 // WindowProc
@@ -431,12 +457,14 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	Material* materialData = nullptr; materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
 	materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	materialData->enableLighting = 1; // 球体はライティング有効
+	materialData->uvTransform = MakeIdentity4x4();
 
 	// Sprite用のマテリアルを作成し、ライティングを無効化
 	ID3D12Resource* materialResourceSprite = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &materialResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&materialResourceSprite));
 	Material* materialDataSprite = nullptr; materialResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&materialDataSprite));
 	materialDataSprite->color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	materialDataSprite->enableLighting = 0; // Spriteはライティング無効
+	materialDataSprite->uvTransform = MakeIdentity4x4();
 
 	D3D12_RESOURCE_DESC wvpResourceDesc{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, (sizeof(TransformationMatrix) + 255) & ~255, 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
 	ID3D12Resource* wvpResource = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &wvpResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&wvpResource));
@@ -450,6 +478,13 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	transformationMatrixDataSprite->wvp = MakeIdentity4x4();
 	transformationMatrixDataSprite->world = MakeIdentity4x4();
 	Transform transformSprite{ {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
+
+	// Transform用変数の用意
+	Transform uvTransformSprite{
+		{ 1.0f, 1.0f, 1.0f },
+		{ 0.0f, 0.0f, 0.0f },
+		{ 0.0f, 0.0f, 0.0f },
+	};
 
 	// 平行光源用の定数バッファ作成とデータ転送
 	D3D12_RESOURCE_DESC directionalLightResourceDesc{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, (sizeof(DirectionalLight) + 255) & ~255, 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
@@ -516,7 +551,17 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 				ImGui::SliderFloat3("rotate", transformSphere.rotate, -pi, pi);
 			}
 
-			if (ImGui::CollapsingHeader("TransformSprite", ImGuiTreeNodeFlags_DefaultOpen)) { ImGui::SliderFloat2("scale", transformSprite.scale, 0.1f, 5.0f); ImGui::SliderFloat2("translate", transformSprite.translate, -200.0f, 1000.0f); }
+			if (ImGui::CollapsingHeader("TransformSprite", ImGuiTreeNodeFlags_DefaultOpen)) {
+				ImGui::SliderFloat2("scale", transformSprite.scale, 0.1f, 5.0f);
+				ImGui::SliderFloat2("translate", transformSprite.translate, -200.0f, 1000.0f);
+
+				// UV編集用のUI
+				ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate[0], 0.01f, -10.0f, 10.0f);
+				ImGui::DragFloat2("UVScale", &uvTransformSprite.scale[0], 0.01f, -10.0f, 10.0f);
+				ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate[2]);
+
+			}
+
 			ImGui::End(); ImGui::Render();
 #endif
 
@@ -530,6 +575,12 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(0.0f, 0.0f, (float)kClientWidth, (float)kClientHeight, 0.0f, 100.0f);
 			transformationMatrixDataSprite->wvp = Multiply(worldMatrixSprite, projectionMatrixSprite);
 			transformationMatrixDataSprite->world = worldMatrixSprite;
+
+			// UVTransform用の行列を生成してマテリアルに渡す
+			Matrix4x4 uvTransformMatrix = MakeScaleMatrix(uvTransformSprite.scale);
+			uvTransformMatrix = Multiply(uvTransformMatrix, MakeRotateZMatrix(uvTransformSprite.rotate[2]));
+			uvTransformMatrix = Multiply(uvTransformMatrix, MakeTranslateMatrix(uvTransformSprite.translate));
+			materialDataSprite->uvTransform = uvTransformMatrix;
 
 			commandAllocator->Reset(); commandList->Reset(commandAllocator, nullptr);
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
@@ -562,7 +613,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			// ============================
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
-			commandList->IASetIndexBuffer(&indexBufferViewSphere); // ★ 追加：IBVのセット
+			commandList->IASetIndexBuffer(&indexBufferViewSphere); // IBVのセット
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU1);
 			// ★ 変更：DrawInstanced から DrawIndexedInstanced へ
@@ -573,10 +624,10 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			// ============================
 			commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
-			commandList->IASetIndexBuffer(&indexBufferViewSprite); // ★ 追加：IBVのセット
+			commandList->IASetIndexBuffer(&indexBufferViewSprite); // IBVのセット
 			commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU1);
-			// ★ 変更：DrawInstanced(6,1,0,0) から DrawIndexedInstanced(6,1,0,0,0) へ
+			// DrawInstanced(6,1,0,0) から DrawIndexedInstanced(6,1,0,0,0) へ
 			commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
 #ifdef USE_IMGUI
@@ -605,8 +656,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	if (directionalLightResource) directionalLightResource->Unmap(0, nullptr);
 
 	// リソース解放 (追加したインデックスリソースも忘れずに解放！)
-	if (indexResourceSphere) indexResourceSphere->Release(); // ★ 追加
-	if (indexResourceSprite) indexResourceSprite->Release(); // ★ 追加
+	if (indexResourceSphere) indexResourceSphere->Release();
+	if (indexResourceSprite) indexResourceSprite->Release();
 
 	if (vertexResourceSprite) vertexResourceSprite->Release();
 	if (transformationMatrixResourceSprite) transformationMatrixResourceSprite->Release();
