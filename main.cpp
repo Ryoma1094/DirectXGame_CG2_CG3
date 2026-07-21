@@ -13,6 +13,10 @@
 #include <iterator>
 #include <wrl.h> 
 
+// XAudio2に必要なヘッダーとライブラリ
+#include <xaudio2.h>
+#pragma comment(lib, "xaudio2.lib")
+
 // DXCコンパイルに必要なヘッダーとライブラリ
 #include <dxcapi.h>
 #pragma comment(lib, "dxcompiler.lib")
@@ -33,7 +37,100 @@
 #include "externals/imgui/imgui_impl_win32.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-// 自動リークチェッカー構造体の定義
+// 音声データ読み込み用構造体の定義
+struct ChunkHeader {
+	char id[4];    // チャンク毎のID
+	int32_t size;  // チャンクサイズ
+};
+
+struct RiffHeader {
+	ChunkHeader chunk; // "RIFF"
+	char type[4];      // "WAVE"
+};
+
+struct FormatChunk {
+	ChunkHeader chunk; // "fmt "
+	WAVEFORMATEX fmt;  // 波形フォーマット
+};
+
+struct SoundData {
+	WAVEFORMATEX wfex;       // 波形フォーマット
+	BYTE* pBuffer;           // バッファの先頭アドレス
+	unsigned int bufferSize; // バッファのサイズ
+};
+
+// .wav音声ファイルの読み込み関数
+SoundData SoundLoadWave(const char* filename) {
+	std::ifstream file;
+	file.open(filename, std::ios_base::binary);
+	assert(file.is_open());
+
+	RiffHeader riff;
+	file.read((char*)&riff, sizeof(riff));
+	if (strncmp(riff.chunk.id, "RIFF", 4) != 0) {
+		assert(0);
+	}
+	if (strncmp(riff.type, "WAVE", 4) != 0) {
+		assert(0);
+	}
+
+	FormatChunk format = {};
+	file.read((char*)&format, sizeof(ChunkHeader));
+	if (strncmp(format.chunk.id, "fmt ", 4) != 0) {
+		assert(0);
+	}
+	assert(format.chunk.size <= sizeof(format.fmt));
+	file.read((char*)&format.fmt, format.chunk.size);
+
+	ChunkHeader data;
+	file.read((char*)&data, sizeof(data));
+	if (strncmp(data.id, "JUNK", 4) == 0) {
+		file.seekg(data.size, std::ios_base::cur);
+		file.read((char*)&data, sizeof(data));
+	}
+	if (strncmp(data.id, "data", 4) != 0) {
+		assert(0);
+	}
+
+	char* pBuffer = new char[data.size];
+	file.read(pBuffer, data.size);
+
+	file.close();
+
+	SoundData soundData = {};
+	soundData.wfex = format.fmt;
+	soundData.pBuffer = reinterpret_cast<BYTE*>(pBuffer);
+	soundData.bufferSize = data.size;
+
+	return soundData;
+}
+
+// 音声データの解放関数
+void SoundUnload(SoundData* soundData) {
+	delete[] soundData->pBuffer;
+	soundData->pBuffer = 0;
+	soundData->bufferSize = 0;
+	soundData->wfex = {};
+}
+
+// サウンド再生関数
+void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData) {
+	HRESULT hr;
+
+	IXAudio2SourceVoice* pSourceVoice = nullptr;
+	hr = xAudio2->CreateSourceVoice(&pSourceVoice, &soundData.wfex);
+	assert(SUCCEEDED(hr));
+
+	XAUDIO2_BUFFER buf{};
+	buf.pAudioData = soundData.pBuffer;
+	buf.AudioBytes = soundData.bufferSize;
+	buf.Flags = XAUDIO2_END_OF_STREAM;
+
+	hr = pSourceVoice->SubmitSourceBuffer(&buf);
+	hr = pSourceVoice->Start();
+}
+
+// 自動リークチェッカー構造体
 struct D3DResourceLeakChecker {
 	~D3DResourceLeakChecker() {
 		Microsoft::WRL::ComPtr<IDXGIDebug1> debug;
@@ -43,7 +140,7 @@ struct D3DResourceLeakChecker {
 	}
 };
 
-// 文字列変換用ヘルパー関数（string -> wstring）
+// 文字列変換用ヘルパー関数
 std::wstring ConvertString(const std::string& str) {
 	if (str.empty()) return L"";
 	int sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, NULL, 0);
@@ -58,7 +155,6 @@ std::wstring ConvertString(const std::string& str) {
 	return wstr;
 }
 
-// 頂点データ構造体
 struct Vector4 { float x, y, z, w; };
 struct Vector3 { float x, y, z; };
 struct Vector2 { float u, v; };
@@ -102,7 +198,6 @@ struct DirectionalLight {
 	float intensity;
 };
 
-// --- 行列計算・ヘルパー関数群 ---
 Matrix4x4 MakeIdentity4x4() {
 	Matrix4x4 result = {};
 	for (int i = 0; i < 4; ++i) result.m[i][i] = 1.0f;
@@ -234,7 +329,6 @@ Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(const Microsof
 	return descriptorHeap;
 }
 
-// 🌟WICオブジェクトもComPtr化して自動解放に対応
 void LoadTextureFile(const std::wstring& filePath, std::vector<uint8_t>& outData, D3D12_RESOURCE_DESC& outDesc) {
 	Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory = nullptr;
 	CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
@@ -378,7 +472,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		const uint32_t descriptorSizeRTV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 		const uint32_t descriptorSizeDSV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
 
-		// 🌟修正：記述漏れしていた commandQueueDesc の定義を追加
 		D3D12_COMMAND_QUEUE_DESC commandQueueDesc{};
 		commandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
@@ -408,7 +501,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		D3D12_RENDER_TARGET_VIEW_DESC rtvDescSRGB = rtvDesc;
 		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[2];
 		rtvHandles[0] = GetCPUDescriptorHandle(rtvDescriptorHeap.Get(), descriptorSizeRTV, 0); device->CreateRenderTargetView(swapChainResources[0].Get(), &rtvDescSRGB, rtvHandles[0]);
-		// 🌟修正：swapChainResources[1] に .Get() が抜けていたのを修正
 		rtvHandles[1] = GetCPUDescriptorHandle(rtvDescriptorHeap.Get(), descriptorSizeRTV, 1); device->CreateRenderTargetView(swapChainResources[1].Get(), &rtvDescSRGB, rtvHandles[1]);
 
 		Microsoft::WRL::ComPtr<ID3D12Resource> depthStencilResource = CreateDepthStencilTextureResource(device, kClientWidth, kClientHeight);
@@ -419,6 +511,22 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 		Microsoft::WRL::ComPtr<ID3D12Fence> fence = nullptr; uint64_t fenceValue = 0; device->CreateFence(fenceValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
 		HANDLE fenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+		// XAudio2関連の初期化処理
+		Microsoft::WRL::ComPtr<IXAudio2> xAudio2;
+		IXAudio2MasteringVoice* masterVoice = nullptr;
+
+		HRESULT hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+		assert(SUCCEEDED(hr));
+
+		hr = xAudio2->CreateMasteringVoice(&masterVoice);
+		assert(SUCCEEDED(hr));
+
+		// 🌟 スライド①：音声読み込み
+		SoundData soundData1 = SoundLoadWave("resources/fanfare.wav");
+
+		// 🌟 スライド②：音声再生
+		SoundPlayWave(xAudio2.Get(), soundData1);
 
 		Microsoft::WRL::ComPtr<IDxcUtils> dxcUtils = nullptr; Microsoft::WRL::ComPtr<IDxcCompiler3> dxcCompiler = nullptr; Microsoft::WRL::ComPtr<IDxcIncludeHandler> includeHandler = nullptr;
 		DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&dxcUtils)); DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxcCompiler)); dxcUtils->CreateDefaultIncludeHandler(&includeHandler);
@@ -475,7 +583,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSprite{ vertexResourceSprite->GetGPUVirtualAddress(), sizeof(Vertex) * 4, sizeof(Vertex) };
 		Vertex* vertexDataSprite = nullptr; vertexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataSprite));
 
-		// スプライト頂点データ初期化
 		Vector3 nSprite = { 0.0f, 0.0f, -1.0f };
 		vertexDataSprite[0] = { {0.0f, 360.0f, 0.0f, 1.0f}, {0.0f, 1.0f}, nSprite };
 		vertexDataSprite[1] = { {0.0f, 0.0f, 0.0f, 1.0f},   {0.0f, 0.0f}, nSprite };
@@ -695,6 +802,13 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		ImGui_ImplWin32_Shutdown();
 		ImGui::DestroyContext();
 #endif
+
+		// 🌟 スライド③：後始末
+		// XAudio2解放（音声データのメモリを安全に解放するために、必ず先に行う）
+		xAudio2.Reset();
+
+		// 音声データ解放
+		SoundUnload(&soundData1);
 
 		directionalLightResource->Unmap(0, nullptr);
 		materialResourceSprite->Unmap(0, nullptr);
