@@ -13,6 +13,12 @@
 #include <iterator>
 #include <wrl.h> 
 
+// DirectInputに必要なヘッダーとライブラリ
+#define DIRECTINPUT_VERSION 0x0800 // DirectInputのバージョン指定
+#include <dinput.h>
+#pragma comment(lib, "dinput8.lib")
+#pragma comment(lib, "dxguid.lib")
+
 // XAudio2に必要なヘッダーとライブラリ
 #include <xaudio2.h>
 #pragma comment(lib, "xaudio2.lib")
@@ -23,7 +29,6 @@
 
 // ReportLiveObjects用のヘッダーとライブラリ
 #include <dxgidebug.h>
-#pragma comment(lib, "dxguid.lib")
 
 #pragma comment(lib,"d3d12.lib")
 #pragma comment(lib,"dxgi.lib")
@@ -36,6 +41,33 @@
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+// =========================================================
+// 🌟 キー入力保存用バッファと入力判定関数 (英語表記にリファクタリング)
+// =========================================================
+BYTE key[256] = {};    // 現フレームのキー状態
+BYTE keyPre[256] = {}; // 前フレームのキー状態
+
+// キーが押されている状態か
+bool IsKeyPressed(uint8_t keyCode) {
+	return (key[keyCode] & 0x80) != 0;
+}
+
+// キーが離されている状態か
+bool IsKeyReleased(uint8_t keyCode) {
+	return (key[keyCode] & 0x80) == 0;
+}
+
+// キーを押した瞬間か（トリガー処理）
+bool IsKeyTriggered(uint8_t keyCode) {
+	return ((key[keyCode] & 0x80) != 0) && ((keyPre[keyCode] & 0x80) == 0);
+}
+
+// キーを離した瞬間か
+bool IsKeyReleaseTriggered(uint8_t keyCode) {
+	return ((key[keyCode] & 0x80) == 0) && ((keyPre[keyCode] & 0x80) != 0);
+}
+// =========================================================
 
 // 音声データ読み込み用構造体の定義
 struct ChunkHeader {
@@ -438,7 +470,7 @@ ModelData LoadObjFile(const std::string& directoryPath, const std::string& filen
 	return modelData;
 }
 
-int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
+int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
 	D3DResourceLeakChecker leakCheck;
@@ -512,20 +544,41 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		Microsoft::WRL::ComPtr<ID3D12Fence> fence = nullptr; uint64_t fenceValue = 0; device->CreateFence(fenceValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
 		HANDLE fenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
+		// DirectInput 初期化処理
+		HRESULT hr;
+
+		// DirectInputオブジェクトの生成
+		IDirectInput8* directInput = nullptr;
+		hr = DirectInput8Create(
+			hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8,
+			(void**)&directInput, nullptr);
+		assert(SUCCEEDED(hr));
+
+		// キーボードデバイスの生成
+		IDirectInputDevice8* keyboard = nullptr;
+		hr = directInput->CreateDevice(GUID_SysKeyboard, &keyboard, NULL);
+		assert(SUCCEEDED(hr));
+
+		// 入力データ形式のセット
+		hr = keyboard->SetDataFormat(&c_dfDIKeyboard); // 標準形式
+		assert(SUCCEEDED(hr));
+
+		// 排他制御レベルのセット
+		hr = keyboard->SetCooperativeLevel(
+			hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
+		assert(SUCCEEDED(hr));
+
 		// XAudio2関連の初期化処理
 		Microsoft::WRL::ComPtr<IXAudio2> xAudio2;
 		IXAudio2MasteringVoice* masterVoice = nullptr;
 
-		HRESULT hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+		hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 		assert(SUCCEEDED(hr));
 
 		hr = xAudio2->CreateMasteringVoice(&masterVoice);
 		assert(SUCCEEDED(hr));
 
-		// 🌟 スライド①：音声読み込み
 		SoundData soundData1 = SoundLoadWave("resources/fanfare.wav");
-
-		// 🌟 スライド②：音声再生
 		SoundPlayWave(xAudio2.Get(), soundData1);
 
 		Microsoft::WRL::ComPtr<IDxcUtils> dxcUtils = nullptr; Microsoft::WRL::ComPtr<IDxcCompiler3> dxcCompiler = nullptr; Microsoft::WRL::ComPtr<IDxcIncludeHandler> includeHandler = nullptr;
@@ -674,7 +727,32 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 		MSG msg{};
 		while (msg.message != WM_QUIT) {
-			if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessage(&msg); } else {
+			if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+				TranslateMessage(&msg);
+				DispatchMessage(&msg);
+			} else {
+				// =========================================================
+				// 🌟 DirectX毎フレーム処理（キー入力の更新）
+				// =========================================================
+				// 1. 前フレームのキー状態を保存
+				std::memcpy(keyPre, key, sizeof(key));
+
+				// 2. キーボード情報の取得開始
+				keyboard->Acquire();
+
+				// 3. 全キーの入力状態を取得
+				keyboard->GetDeviceState(sizeof(key), key);
+
+				// 🌟 英語化された入力判定関数の使用例
+				if (IsKeyPressed(DIK_0)) {
+					OutputDebugStringA("Pressing 0\n"); // 0キーを押し続けている間
+				}
+
+				if (IsKeyTriggered(DIK_0)) {
+					OutputDebugStringA("Triggered 0\n"); // 0キーを押した瞬間
+				}
+				// =========================================================
+
 				if (isAutoRotate) { transformModel.rotate[1] += 0.01f; if (transformModel.rotate[1] > pi_f * 2.0f) transformModel.rotate[1] -= pi_f * 2.0f; }
 
 #ifdef USE_IMGUI
@@ -803,8 +881,16 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		ImGui::DestroyContext();
 #endif
 
-		// 🌟 スライド③：後始末
-		// XAudio2解放（音声データのメモリを安全に解放するために、必ず先に行う）
+		// DirectInputの解放処理
+		if (keyboard) {
+			keyboard->Unacquire();
+			keyboard->Release();
+		}
+		if (directInput) {
+			directInput->Release();
+		}
+
+		// XAudio2解放
 		xAudio2.Reset();
 
 		// 音声データ解放
