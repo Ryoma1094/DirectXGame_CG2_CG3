@@ -30,6 +30,8 @@
 // ReportLiveObjects用のヘッダーとライブラリ
 #include <dxgidebug.h>
 
+#include "DebugCamera.h" // デバッグカメラのインクルード
+
 #pragma comment(lib,"d3d12.lib")
 #pragma comment(lib,"dxgi.lib")
 #pragma comment(lib,"Windowscodecs.lib")
@@ -188,7 +190,6 @@ std::wstring ConvertString(const std::string& str) {
 }
 
 struct Vector4 { float x, y, z, w; };
-struct Vector3 { float x, y, z; };
 struct Vector2 { float u, v; };
 struct Vertex {
 	Vector4 position;
@@ -204,8 +205,6 @@ struct ModelData {
 	std::vector<Vertex> vertices;
 	MaterialData material;
 };
-
-struct Matrix4x4 { float m[4][4]; };
 
 struct Material {
 	Vector4 color;
@@ -718,8 +717,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		ImGui_ImplDX12_Init(device.Get(), 2, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, srvDescriptorHeap.Get(), GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0), GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0));
 #endif
 
-		float cameraTranslate[3] = { 0.0f, 4.0f, -10.0f };
-		float cameraRotate[3] = { 0.296f, 0.0f, 0.0f };
+		// デバッグカメラのインスタンス化と初期化
+		DebugCamera debugCamera;
+		debugCamera.Initialize();
+
 		bool isAutoRotate = false; bool useMonsterBall = false;
 		float pi_f = 3.1415926535f;
 
@@ -743,6 +744,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 				// 3. 全キーの入力状態を取得
 				keyboard->GetDeviceState(sizeof(key), key);
 
+				// 4. デバッグカメラの更新
+				debugCamera.Update(key);
+
 				// 🌟 英語化された入力判定関数の使用例
 				if (IsKeyPressed(DIK_0)) {
 					OutputDebugStringA("Pressing 0\n"); // 0キーを押し続けている間
@@ -758,10 +762,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 #ifdef USE_IMGUI
 				ImGui_ImplDX12_NewFrame(); ImGui_ImplWin32_NewFrame(); ImGui::NewFrame();
 				ImGui::Begin("Settings");
-				if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
-					ImGui::DragFloat3("CameraTranslate", cameraTranslate, 0.1f);
-					ImGui::SliderFloat3("CameraRotate", cameraRotate, -pi_f, pi_f);
-				}
 				if (ImGui::CollapsingHeader("Material", ImGuiTreeNodeFlags_DefaultOpen)) { ImGui::ColorEdit4("color", &materialData->color.x); }
 				if (ImGui::CollapsingHeader("TransformModel", ImGuiTreeNodeFlags_DefaultOpen)) { ImGui::Checkbox("useMonsterBall", &useMonsterBall); ImGui::Checkbox("Auto Rotate", &isAutoRotate); ImGui::SliderFloat3("rotate", transformModel.rotate, -pi_f, pi_f); }
 
@@ -781,20 +781,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 				Matrix4x4 materialTransformMatrix = MakeUVTransformMatrix(uvTransformSprite.scale, uvTransformSprite.rotate[2], uvTransformSprite.translate);
 				materialDataSprite->uvTransform = materialTransformMatrix;
 
-				float negTranslate[3] = { -cameraTranslate[0], -cameraTranslate[1], -cameraTranslate[2] };
-				Matrix4x4 viewTranslateMatrix = MakeTranslateMatrix(negTranslate);
-
-				Matrix4x4 viewRotateXMatrix = MakeIdentity4x4();
-				viewRotateXMatrix.m[1][1] = std::cos(-cameraRotate[0]); viewRotateXMatrix.m[1][2] = std::sin(-cameraRotate[0]);
-				viewRotateXMatrix.m[2][1] = -std::sin(-cameraRotate[0]); viewRotateXMatrix.m[2][2] = std::cos(-cameraRotate[0]);
-
-				Matrix4x4 viewRotateYMatrix = MakeIdentity4x4();
-				viewRotateYMatrix.m[0][0] = std::cos(-cameraRotate[1]); viewRotateYMatrix.m[0][2] = -std::sin(-cameraRotate[1]);
-				viewRotateYMatrix.m[2][0] = std::sin(-cameraRotate[1]); viewRotateYMatrix.m[2][2] = std::cos(-cameraRotate[1]);
-
-				Matrix4x4 viewRotateZMatrix = MakeRotateZMatrix(-cameraRotate[2]);
-
-				Matrix4x4 viewMatrix = Multiply(Multiply(Multiply(viewTranslateMatrix, viewRotateZMatrix), viewRotateYMatrix), viewRotateXMatrix);
+				// DebugCameraからビュー行列を取得
+				Matrix4x4 viewMatrix = debugCamera.GetMatView();
 
 				Matrix4x4 worldMatrixModel = MakeAffineMatrix(transformModel.scale, transformModel.rotate, transformModel.translate);
 				Matrix4x4 projectionMatrixModel = MakePerspectiveFovMatrix(0.45f, (float)kClientWidth / kClientHeight, 0.1f, 100.0f);

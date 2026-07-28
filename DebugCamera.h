@@ -1,6 +1,7 @@
 #pragma once
 #include "Vector3.h"
 #include "Matrix4x4.h"
+#include <cstdint>
 
 /// <summary>
 /// デバッグカメラ
@@ -14,9 +15,10 @@ public:
     void Initialize();
 
     /// <summary>
-    /// 更新
+    /// 更新 (DirectInputのキー入力バッファを受け取る)
     /// </summary>
-    void Update();
+    /// <param name="keys">キー入力状態配列</param>
+    void Update(const uint8_t* keys);
 
     // ゲッター関数
     const Matrix4x4& GetMatView() const { return matView_; }
