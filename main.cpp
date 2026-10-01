@@ -13,24 +13,21 @@
 #include <iterator>
 #include <wrl.h> 
 
-// DirectInputに必要なヘッダーとライブラリ
-#define DIRECTINPUT_VERSION 0x0800 // DirectInputのバージョン指定
+#define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")
 
-// XAudio2に必要なヘッダーとライブラリ
 #include <xaudio2.h>
 #pragma comment(lib, "xaudio2.lib")
 
-// DXCコンパイルに必要なヘッダーとライブラリ
 #include <dxcapi.h>
 #pragma comment(lib, "dxcompiler.lib")
-
-// ReportLiveObjects用のヘッダーとライブラリ
 #include <dxgidebug.h>
 
-#include "DebugCamera.h" // デバッグカメラのインクルード
+#include "Vector3.h"
+#include "Matrix4x4.h"
+#include "DebugCamera.h"
 
 #pragma comment(lib,"d3d12.lib")
 #pragma comment(lib,"dxgi.lib")
@@ -44,127 +41,44 @@
 #include "externals/imgui/imgui_impl_win32.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-// =========================================================
-// 🌟 キー入力保存用バッファと入力判定関数 (英語表記にリファクタリング)
-// =========================================================
-BYTE key[256] = {};    // 現フレームのキー状態
-BYTE keyPre[256] = {}; // 前フレームのキー状態
+// キーバッファ
+BYTE key[256] = {};
+BYTE keyPre[256] = {};
 
-// キーが押されている状態か
-bool IsKeyPressed(uint8_t keyCode) {
-	return (key[keyCode] & 0x80) != 0;
-}
+bool IsKeyPressed(uint8_t keyCode) { return (key[keyCode] & 0x80) != 0; }
+bool IsKeyReleased(uint8_t keyCode) { return (key[keyCode] & 0x80) == 0; }
+bool IsKeyTriggered(uint8_t keyCode) { return ((key[keyCode] & 0x80) != 0) && ((keyPre[keyCode] & 0x80) == 0); }
 
-// キーが離されている状態か
-bool IsKeyReleased(uint8_t keyCode) {
-	return (key[keyCode] & 0x80) == 0;
-}
+struct ChunkHeader { char id[4]; int32_t size; };
+struct RiffHeader { ChunkHeader chunk; char type[4]; };
+struct FormatChunk { ChunkHeader chunk; WAVEFORMATEX fmt; };
+struct SoundData { WAVEFORMATEX wfex; BYTE* pBuffer; unsigned int bufferSize; };
 
-// キーを押した瞬間か（トリガー処理）
-bool IsKeyTriggered(uint8_t keyCode) {
-	return ((key[keyCode] & 0x80) != 0) && ((keyPre[keyCode] & 0x80) == 0);
-}
-
-// キーを離した瞬間か
-bool IsKeyReleaseTriggered(uint8_t keyCode) {
-	return ((key[keyCode] & 0x80) == 0) && ((keyPre[keyCode] & 0x80) != 0);
-}
-// =========================================================
-
-// 音声データ読み込み用構造体の定義
-struct ChunkHeader {
-	char id[4];    // チャンク毎のID
-	int32_t size;  // チャンクサイズ
-};
-
-struct RiffHeader {
-	ChunkHeader chunk; // "RIFF"
-	char type[4];      // "WAVE"
-};
-
-struct FormatChunk {
-	ChunkHeader chunk; // "fmt "
-	WAVEFORMATEX fmt;  // 波形フォーマット
-};
-
-struct SoundData {
-	WAVEFORMATEX wfex;       // 波形フォーマット
-	BYTE* pBuffer;           // バッファの先頭アドレス
-	unsigned int bufferSize; // バッファのサイズ
-};
-
-// .wav音声ファイルの読み込み関数
 SoundData SoundLoadWave(const char* filename) {
-	std::ifstream file;
-	file.open(filename, std::ios_base::binary);
+	std::ifstream file(filename, std::ios_base::binary);
 	assert(file.is_open());
-
-	RiffHeader riff;
-	file.read((char*)&riff, sizeof(riff));
-	if (strncmp(riff.chunk.id, "RIFF", 4) != 0) {
-		assert(0);
-	}
-	if (strncmp(riff.type, "WAVE", 4) != 0) {
-		assert(0);
-	}
-
-	FormatChunk format = {};
-	file.read((char*)&format, sizeof(ChunkHeader));
-	if (strncmp(format.chunk.id, "fmt ", 4) != 0) {
-		assert(0);
-	}
-	assert(format.chunk.size <= sizeof(format.fmt));
+	RiffHeader riff; file.read((char*)&riff, sizeof(riff));
+	FormatChunk format = {}; file.read((char*)&format, sizeof(ChunkHeader));
 	file.read((char*)&format.fmt, format.chunk.size);
-
-	ChunkHeader data;
-	file.read((char*)&data, sizeof(data));
+	ChunkHeader data; file.read((char*)&data, sizeof(data));
 	if (strncmp(data.id, "JUNK", 4) == 0) {
 		file.seekg(data.size, std::ios_base::cur);
 		file.read((char*)&data, sizeof(data));
 	}
-	if (strncmp(data.id, "data", 4) != 0) {
-		assert(0);
-	}
-
-	char* pBuffer = new char[data.size];
-	file.read(pBuffer, data.size);
-
+	char* pBuffer = new char[data.size]; file.read(pBuffer, data.size);
 	file.close();
-
-	SoundData soundData = {};
-	soundData.wfex = format.fmt;
-	soundData.pBuffer = reinterpret_cast<BYTE*>(pBuffer);
-	soundData.bufferSize = data.size;
-
-	return soundData;
+	return { format.fmt, reinterpret_cast<BYTE*>(pBuffer), static_cast<unsigned int>(data.size) };
 }
 
-// 音声データの解放関数
-void SoundUnload(SoundData* soundData) {
-	delete[] soundData->pBuffer;
-	soundData->pBuffer = 0;
-	soundData->bufferSize = 0;
-	soundData->wfex = {};
-}
-
-// サウンド再生関数
+void SoundUnload(SoundData* soundData) { delete[] soundData->pBuffer; soundData->pBuffer = nullptr; }
 void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData) {
-	HRESULT hr;
-
 	IXAudio2SourceVoice* pSourceVoice = nullptr;
-	hr = xAudio2->CreateSourceVoice(&pSourceVoice, &soundData.wfex);
-	assert(SUCCEEDED(hr));
-
-	XAUDIO2_BUFFER buf{};
-	buf.pAudioData = soundData.pBuffer;
-	buf.AudioBytes = soundData.bufferSize;
-	buf.Flags = XAUDIO2_END_OF_STREAM;
-
-	hr = pSourceVoice->SubmitSourceBuffer(&buf);
-	hr = pSourceVoice->Start();
+	if (SUCCEEDED(xAudio2->CreateSourceVoice(&pSourceVoice, &soundData.wfex))) {
+		XAUDIO2_BUFFER buf{}; buf.pAudioData = soundData.pBuffer; buf.AudioBytes = soundData.bufferSize; buf.Flags = XAUDIO2_END_OF_STREAM;
+		pSourceVoice->SubmitSourceBuffer(&buf); pSourceVoice->Start();
+	}
 }
 
-// 自動リークチェッカー構造体
 struct D3DResourceLeakChecker {
 	~D3DResourceLeakChecker() {
 		Microsoft::WRL::ComPtr<IDXGIDebug1> debug;
@@ -174,140 +88,79 @@ struct D3DResourceLeakChecker {
 	}
 };
 
-// 文字列変換用ヘルパー関数
 std::wstring ConvertString(const std::string& str) {
 	if (str.empty()) return L"";
 	int sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, NULL, 0);
-	if (sizeNeeded == 0) {
-		sizeNeeded = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, NULL, 0);
-		std::wstring wstr(sizeNeeded - 1, 0);
-		MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, &wstr[0], sizeNeeded);
-		return wstr;
-	}
+	if (sizeNeeded == 0) sizeNeeded = MultiByteToWideChar(CP_ACP, 0, str.c_str(), -1, NULL, 0);
 	std::wstring wstr(sizeNeeded - 1, 0);
 	MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &wstr[0], sizeNeeded);
 	return wstr;
 }
 
+// 補助用構造体（Vector3 は Vector3.h を使用）
+struct Vector2 { float x, y; };
 struct Vector4 { float x, y, z, w; };
-struct Vector2 { float u, v; };
-struct Vertex {
-	Vector4 position;
-	Vector2 texcoord;
-	Vector3 normal;
-};
+struct Vertex { Vector4 position; Vector2 texcoord; Vector3 normal; };
 
-struct MaterialData {
-	std::string textureFilePath;
-};
-
-struct ModelData {
-	std::vector<Vertex> vertices;
-	MaterialData material;
-};
+struct MaterialData { std::string textureFilePath; };
+struct ModelData { std::vector<Vertex> vertices; MaterialData material; };
 
 struct Material {
 	Vector4 color;
-	int32_t enableLighting;
-	float padding[3];
+	int32_t enableLighting; // 0: Disable, 1: Enable
+	int32_t lightingType;   // 0: None, 1: Lambert, 2: Half Lambert
+	float padding[2];
 	Matrix4x4 uvTransform;
 };
 
-struct TransformationMatrix {
-	Matrix4x4 wvp;
-	Matrix4x4 world;
-};
+struct TransformationMatrix { Matrix4x4 wvp; Matrix4x4 world; };
 struct Transform {
-	float scale[3];
-	float rotate[3];
-	float translate[3];
+	Vector3 scale{ 1.0f, 1.0f, 1.0f };
+	Vector3 rotate{ 0.0f, 0.0f, 0.0f };
+	Vector3 translate{ 0.0f, 0.0f, 0.0f };
 };
+struct DirectionalLight { Vector4 color; Vector3 direction; float intensity; };
 
-struct DirectionalLight {
-	Vector4 color;
-	Vector3 direction;
-	float intensity;
-};
+Matrix4x4 MakeUVTransformMatrix(const Vector3& scale, float rotateZ, const Vector3& translate) {
+	Matrix4x4 mScale = Matrix4x4::MakeScaleMatrix({ scale.x, scale.y, 1.0f });
+	Matrix4x4 mRotZ = Matrix4x4::MakeRotateZMatrix(rotateZ);
+	Matrix4x4 mTranslate = Matrix4x4::MakeTranslateMatrix({ translate.x, translate.y, 0.0f });
+	return Matrix4x4::Multiply(Matrix4x4::Multiply(mScale, mRotZ), mTranslate);
+}
 
-Matrix4x4 MakeIdentity4x4() {
-	Matrix4x4 result = {};
-	for (int i = 0; i < 4; ++i) result.m[i][i] = 1.0f;
-	return result;
-}
-Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearClip, float farClip) {
-	Matrix4x4 result = {};
-	float h = 1.0f / std::tan(fovY / 2.0f);
-	float w = h / aspect;
-	result.m[0][0] = w;
-	result.m[1][1] = h;
-	result.m[2][2] = farClip / (farClip - nearClip);
-	result.m[2][3] = 1.0f;
-	result.m[3][2] = (-nearClip * farClip) / (farClip - nearClip);
-	return result;
-}
-Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearClip, float farClip) {
-	Matrix4x4 result = {};
-	result.m[0][0] = 2.0f / (right - left);
-	result.m[1][1] = 2.0f / (top - bottom);
-	result.m[2][2] = 1.0f / (farClip - nearClip);
-	result.m[3][0] = (left + right) / (left - right);
-	result.m[3][1] = (top + bottom) / (bottom - top);
-	result.m[3][2] = nearClip / (nearClip - farClip);
-	result.m[3][3] = 1.0f;
-	return result;
-}
-Matrix4x4 Multiply(const Matrix4x4& m1, const Matrix4x4& m2) {
-	Matrix4x4 result = {};
-	for (int i = 0; i < 4; ++i) {
-		for (int j = 0; j < 4; ++j) {
-			result.m[i][j] = m1.m[i][0] * m2.m[0][j] +
-				m1.m[i][1] * m2.m[1][j] +
-				m1.m[i][2] * m2.m[2][j] +
-				m1.m[i][3] * m2.m[3][j];
+ModelData CreateSphereModel(uint32_t kSubdivision = 32) {
+	ModelData modelData;
+	const float kPI = 3.1415926535f;
+	for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
+		float lat0 = -kPI / 2.0f + kPI * (float)latIndex / kSubdivision;
+		float lat1 = -kPI / 2.0f + kPI * (float)(latIndex + 1) / kSubdivision;
+		float v0 = 1.0f - (float)latIndex / kSubdivision;
+		float v1 = 1.0f - (float)(latIndex + 1) / kSubdivision;
+
+		for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
+			float lon0 = 2.0f * kPI * (float)lonIndex / kSubdivision;
+			float lon1 = 2.0f * kPI * (float)(lonIndex + 1) / kSubdivision;
+			float u0 = (float)lonIndex / kSubdivision;
+			float u1 = (float)(lonIndex + 1) / kSubdivision;
+
+			auto GetVertex = [](float lat, float lon, float u, float v) {
+				Vertex vert;
+				vert.position = { std::cos(lat) * std::cos(lon), std::sin(lat), std::cos(lat) * std::sin(lon), 1.0f };
+				vert.normal = { vert.position.x, vert.position.y, vert.position.z };
+				vert.texcoord = { u, v };
+				return vert;
+				};
+
+			Vertex vA = GetVertex(lat0, lon0, u0, v0);
+			Vertex vB = GetVertex(lat1, lon0, u0, v1);
+			Vertex vC = GetVertex(lat0, lon1, u1, v0);
+			Vertex vD = GetVertex(lat1, lon1, u1, v1);
+
+			modelData.vertices.push_back(vA); modelData.vertices.push_back(vB); modelData.vertices.push_back(vC);
+			modelData.vertices.push_back(vC); modelData.vertices.push_back(vB); modelData.vertices.push_back(vD);
 		}
 	}
-	return result;
-}
-Matrix4x4 MakeScaleMatrix(const float scale[3]) {
-	Matrix4x4 result = MakeIdentity4x4();
-	result.m[0][0] = scale[0];
-	result.m[1][1] = scale[1];
-	result.m[2][2] = scale[2];
-	return result;
-}
-Matrix4x4 MakeRotateZMatrix(float rotateZ) {
-	Matrix4x4 result = MakeIdentity4x4();
-	result.m[0][0] = std::cos(rotateZ);  result.m[0][1] = std::sin(rotateZ);
-	result.m[1][0] = -std::sin(rotateZ); result.m[1][1] = std::cos(rotateZ);
-	return result;
-}
-Matrix4x4 MakeTranslateMatrix(const float translate[3]) {
-	Matrix4x4 result = MakeIdentity4x4();
-	result.m[3][0] = translate[0];
-	result.m[3][1] = translate[1];
-	result.m[3][2] = translate[2];
-	return result;
-}
-Matrix4x4 MakeAffineMatrix(const float scale[3], const float rotate[3], const float translate[3]) {
-	Matrix4x4 mScale = MakeScaleMatrix(scale);
-	Matrix4x4 mRotX = MakeIdentity4x4();
-	mRotX.m[1][1] = std::cos(rotate[0]); mRotX.m[1][2] = std::sin(rotate[0]);
-	mRotX.m[2][1] = -std::sin(rotate[0]); mRotX.m[2][2] = std::cos(rotate[0]);
-	Matrix4x4 mRotY = MakeIdentity4x4();
-	mRotY.m[0][0] = std::cos(rotate[1]); mRotY.m[0][2] = -std::sin(rotate[1]);
-	mRotY.m[2][0] = std::sin(rotate[1]); mRotY.m[2][2] = std::cos(rotate[1]);
-	Matrix4x4 mRotZ = MakeRotateZMatrix(rotate[2]);
-	Matrix4x4 mRotate = Multiply(Multiply(mRotX, mRotY), mRotZ);
-	Matrix4x4 mTranslate = MakeTranslateMatrix(translate);
-	return Multiply(Multiply(mScale, mRotate), mTranslate);
-}
-Matrix4x4 MakeUVTransformMatrix(const float scale[3], float rotateZ, const float translate[3]) {
-	Matrix4x4 mScale = MakeIdentity4x4();
-	mScale.m[0][0] = scale[0]; mScale.m[1][1] = scale[1];
-	Matrix4x4 mRotZ = MakeRotateZMatrix(rotateZ);
-	Matrix4x4 mTranslate = MakeIdentity4x4();
-	mTranslate.m[3][0] = translate[0]; mTranslate.m[3][1] = translate[1];
-	return Multiply(Multiply(mScale, mRotZ), mTranslate);
+	return modelData;
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -329,25 +182,13 @@ D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(ID3D12DescriptorHeap* descrip
 	return handleGPU;
 }
 
-Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(
-	const std::wstring& filePath,
-	const wchar_t* profile,
-	const Microsoft::WRL::ComPtr<IDxcUtils>& dxcUtils,
-	const Microsoft::WRL::ComPtr<IDxcCompiler3>& dxcCompiler,
-	const Microsoft::WRL::ComPtr<IDxcIncludeHandler>& includeHandler) {
-
+Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(const std::wstring& filePath, const wchar_t* profile, const Microsoft::WRL::ComPtr<IDxcUtils>& dxcUtils, const Microsoft::WRL::ComPtr<IDxcCompiler3>& dxcCompiler, const Microsoft::WRL::ComPtr<IDxcIncludeHandler>& includeHandler) {
 	Microsoft::WRL::ComPtr<IDxcBlobEncoding> shaderSource = nullptr;
 	dxcUtils->LoadFile(filePath.c_str(), nullptr, &shaderSource);
 	DxcBuffer shaderSourceBuffer{ shaderSource->GetBufferPointer(), shaderSource->GetBufferSize(), DXC_CP_UTF8 };
 	LPCWSTR arguments[] = { filePath.c_str(), L"-E", L"main", L"-T", profile, L"-Zi", L"-Qembed_debug", L"-Od", L"-Zpr", L"-HV", L"2021" };
-
 	Microsoft::WRL::ComPtr<IDxcResult> shaderResult = nullptr;
 	dxcCompiler->Compile(&shaderSourceBuffer, arguments, _countof(arguments), includeHandler.Get(), IID_PPV_ARGS(&shaderResult));
-
-	Microsoft::WRL::ComPtr<IDxcBlobUtf8> shaderError = nullptr;
-	shaderResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&shaderError), nullptr);
-	if (shaderError && shaderError->GetStringLength() != 0) { OutputDebugStringA(reinterpret_cast<const char*>(shaderError->GetStringPointer())); assert(false); }
-
 	Microsoft::WRL::ComPtr<IDxcBlob> shaderBlob = nullptr;
 	shaderResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob), nullptr);
 	return shaderBlob;
@@ -364,8 +205,7 @@ void LoadTextureFile(const std::wstring& filePath, std::vector<uint8_t>& outData
 	Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory = nullptr;
 	CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
 	Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder = nullptr;
-	HRESULT hr = wicFactory->CreateDecoderFromFilename(filePath.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder);
-	assert(SUCCEEDED(hr));
+	wicFactory->CreateDecoderFromFilename(filePath.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder);
 	Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame = nullptr; decoder->GetFrame(0, &frame);
 	UINT width = 0, height = 0; frame->GetSize(&width, &height);
 	outData.resize(width * height * 4);
@@ -382,88 +222,28 @@ Microsoft::WRL::ComPtr<ID3D12Resource> CreateDepthStencilTextureResource(const M
 	return resource;
 }
 
-MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename) {
-	MaterialData materialData;
-	std::string line;
-	std::ifstream file(directoryPath + "/" + filename);
-	if (!file.is_open()) return materialData;
-
-	while (std::getline(file, line)) {
-		std::string identifier;
-		std::istringstream s(line);
-		s >> identifier;
-
-		if (identifier == "map_Kd") {
-			std::string textureFilename;
-			s >> textureFilename;
-			materialData.textureFilePath = directoryPath + "/" + textureFilename;
-		}
-	}
-	return materialData;
-}
-
 ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename) {
 	ModelData modelData;
-	std::vector<Vector4> positions;
-	std::vector<Vector3> normals;
-	std::vector<Vector2> texcoords;
-	std::string line;
-
-	std::ifstream file(directoryPath + "/" + filename);
+	std::vector<Vector4> positions; std::vector<Vector3> normals; std::vector<Vector2> texcoords;
+	std::string line; std::ifstream file(directoryPath + "/" + filename);
 	assert(file.is_open());
-
 	while (std::getline(file, line)) {
-		std::string identifier;
-		std::istringstream s(line);
-		s >> identifier;
-
-		if (identifier == "v") {
-			Vector4 position;
-			s >> position.x >> position.y >> position.z;
-			position.w = 1.0f;
-			positions.push_back(position);
-		} else if (identifier == "vt") {
-			Vector2 texcoord;
-			s >> texcoord.u >> texcoord.v;
-			texcoord.v = 1.0f - texcoord.v;
-			texcoords.push_back(texcoord);
-		} else if (identifier == "vn") {
-			Vector3 normal;
-			s >> normal.x >> normal.y >> normal.z;
-			normals.push_back(normal);
-		} else if (identifier == "mtllib") {
-			std::string materialFilename;
-			s >> materialFilename;
-			modelData.material = LoadMaterialTemplateFile(directoryPath, materialFilename);
-		} else if (identifier == "f") {
+		std::string identifier; std::istringstream s(line); s >> identifier;
+		if (identifier == "v") { Vector4 pos; s >> pos.x >> pos.y >> pos.z; pos.w = 1.0f; positions.push_back(pos); } else if (identifier == "vt") { Vector2 tex; s >> tex.x >> tex.y; tex.y = 1.0f - tex.y; texcoords.push_back(tex); } else if (identifier == "vn") { Vector3 norm; s >> norm.x >> norm.y >> norm.z; normals.push_back(norm); } else if (identifier == "f") {
 			Vertex triangle[3];
-
 			for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
-				std::string vertexDefinition;
-				s >> vertexDefinition;
-
-				std::istringstream v(vertexDefinition);
+				std::string vertexDefinition; s >> vertexDefinition; std::istringstream v(vertexDefinition);
 				uint32_t elementIndices[3] = { 0,0,0 };
 				for (int32_t element = 0; element < 3; ++element) {
-					std::string index;
-					if (std::getline(v, index, '/')) {
-						elementIndices[element] = index.empty() ? 0 : std::stoi(index);
-					}
+					std::string index; if (std::getline(v, index, '/')) elementIndices[element] = index.empty() ? 0 : std::stoi(index);
 				}
-
-				Vector4 position = (elementIndices[0] > 0) ? positions[elementIndices[0] - 1] : Vector4{ 0,0,0,1 };
-				Vector2 texcoord = (elementIndices[1] > 0) ? texcoords[elementIndices[1] - 1] : Vector2{ 0,0 };
-				Vector3 normal = (elementIndices[2] > 0) ? normals[elementIndices[2] - 1] : Vector3{ 0,0,-1 };
-
-				position.x *= -1.0f;
-				normal.x *= -1.0f;
-
-				triangle[faceVertex] = { position, texcoord, normal };
+				Vector4 pos = (elementIndices[0] > 0) ? positions[elementIndices[0] - 1] : Vector4{ 0,0,0,1 };
+				Vector2 tex = (elementIndices[1] > 0) ? texcoords[elementIndices[1] - 1] : Vector2{ 0,0 };
+				Vector3 norm = (elementIndices[2] > 0) ? normals[elementIndices[2] - 1] : Vector3{ 0,0,-1 };
+				pos.x *= -1.0f; norm.x *= -1.0f;
+				triangle[faceVertex] = { pos, tex, norm };
 			}
-
-			modelData.vertices.push_back(triangle[2]);
-			modelData.vertices.push_back(triangle[1]);
-			modelData.vertices.push_back(triangle[0]);
+			modelData.vertices.push_back(triangle[2]); modelData.vertices.push_back(triangle[1]); modelData.vertices.push_back(triangle[0]);
 		}
 	}
 	return modelData;
@@ -471,116 +251,67 @@ ModelData LoadObjFile(const std::string& directoryPath, const std::string& filen
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-
 	D3DResourceLeakChecker leakCheck;
 
 	WNDCLASS wc{ 0, WindowProc, 0, 0, GetModuleHandle(nullptr), nullptr, LoadCursor(nullptr, IDC_ARROW), nullptr, nullptr, L"CG2WindowClass" };
 	RegisterClass(&wc);
 	const int32_t kClientWidth = 1280; const int32_t kClientHeight = 720;
 	RECT wrc = { 0, 0, kClientWidth, kClientHeight }; AdjustWindowRect(&wrc, WS_OVERLAPPEDWINDOW, false);
-	HWND hwnd = CreateWindow(wc.lpszClassName, L"CG2 - MultiTexture", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, wrc.right - wrc.left, wrc.bottom - wrc.top, nullptr, nullptr, wc.hInstance, nullptr);
+	HWND hwnd = CreateWindow(wc.lpszClassName, L"CG2_evaluation_Work3", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, wrc.right - wrc.left, wrc.bottom - wrc.top, nullptr, nullptr, wc.hInstance, nullptr);
 	ShowWindow(hwnd, SW_SHOW);
 
 	{
-		Microsoft::WRL::ComPtr<ID3D12Debug1> debugController = nullptr;
-#ifdef _DEBUG
-		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) { debugController->EnableDebugLayer(); debugController->SetEnableGPUBasedValidation(TRUE); }
-#endif
-
 		Microsoft::WRL::ComPtr<IDXGIFactory7> dxgiFactory = nullptr; CreateDXGIFactory(IID_PPV_ARGS(&dxgiFactory));
 		Microsoft::WRL::ComPtr<IDXGIAdapter4> useAdapter = nullptr;
-		for (UINT i = 0; dxgiFactory->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&useAdapter)) != DXGI_ERROR_NOT_FOUND; i++) {
-			DXGI_ADAPTER_DESC3 adapterDesc{}; useAdapter->GetDesc3(&adapterDesc);
-			if (!(adapterDesc.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE)) break;
-			useAdapter = nullptr;
-		}
-
+		dxgiFactory->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&useAdapter));
 		Microsoft::WRL::ComPtr<ID3D12Device> device = nullptr;
-		D3D_FEATURE_LEVEL featureLevels[] = { D3D_FEATURE_LEVEL_12_2, D3D_FEATURE_LEVEL_12_1, D3D_FEATURE_LEVEL_12_0 };
-		for (size_t i = 0; i < _countof(featureLevels); ++i) { if (SUCCEEDED(D3D12CreateDevice(useAdapter.Get(), featureLevels[i], IID_PPV_ARGS(&device)))) break; }
+		D3D12CreateDevice(useAdapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device));
 
 		const uint32_t descriptorSizeSRV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 		const uint32_t descriptorSizeRTV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 		const uint32_t descriptorSizeDSV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
 
-		D3D12_COMMAND_QUEUE_DESC commandQueueDesc{};
-		commandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-
+		D3D12_COMMAND_QUEUE_DESC commandQueueDesc{}; commandQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 		Microsoft::WRL::ComPtr<ID3D12CommandQueue> commandQueue = nullptr; device->CreateCommandQueue(&commandQueueDesc, IID_PPV_ARGS(&commandQueue));
 		Microsoft::WRL::ComPtr<ID3D12CommandAllocator> commandAllocator = nullptr; device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator));
-
 		Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList = nullptr; device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator.Get(), nullptr, IID_PPV_ARGS(&commandList));
 
 		Microsoft::WRL::ComPtr<IDXGISwapChain4> swapChain = nullptr;
 		DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
-		swapChainDesc.Width = (UINT)kClientWidth; swapChainDesc.Height = (UINT)kClientHeight;
-		swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; swapChainDesc.Stereo = FALSE;
-		swapChainDesc.SampleDesc.Count = 1; swapChainDesc.SampleDesc.Quality = 0;
-		swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; swapChainDesc.BufferCount = 2;
+		swapChainDesc.Width = kClientWidth; swapChainDesc.Height = kClientHeight; swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		swapChainDesc.SampleDesc.Count = 1; swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; swapChainDesc.BufferCount = 2;
 		swapChainDesc.Scaling = DXGI_SCALING_STRETCH; swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-		swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED; swapChainDesc.Flags = 0;
-
 		dxgiFactory->CreateSwapChainForHwnd(commandQueue.Get(), hwnd, &swapChainDesc, nullptr, nullptr, reinterpret_cast<IDXGISwapChain1**>(swapChain.GetAddressOf()));
 
 		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2, false);
 		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
 		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> dsvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
 
-		Microsoft::WRL::ComPtr<ID3D12Resource> swapChainResources[2] = { nullptr }; swapChain->GetBuffer(0, IID_PPV_ARGS(&swapChainResources[0])); swapChain->GetBuffer(1, IID_PPV_ARGS(&swapChainResources[1]));
+		Microsoft::WRL::ComPtr<ID3D12Resource> swapChainResources[2]; swapChain->GetBuffer(0, IID_PPV_ARGS(&swapChainResources[0])); swapChain->GetBuffer(1, IID_PPV_ARGS(&swapChainResources[1]));
 		D3D12_RENDER_TARGET_VIEW_DESC rtvDesc{ DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, D3D12_RTV_DIMENSION_TEXTURE2D };
-
-		D3D12_RENDER_TARGET_VIEW_DESC rtvDescSRGB = rtvDesc;
-		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[2];
-		rtvHandles[0] = GetCPUDescriptorHandle(rtvDescriptorHeap.Get(), descriptorSizeRTV, 0); device->CreateRenderTargetView(swapChainResources[0].Get(), &rtvDescSRGB, rtvHandles[0]);
-		rtvHandles[1] = GetCPUDescriptorHandle(rtvDescriptorHeap.Get(), descriptorSizeRTV, 1); device->CreateRenderTargetView(swapChainResources[1].Get(), &rtvDescSRGB, rtvHandles[1]);
+		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[2] = { GetCPUDescriptorHandle(rtvDescriptorHeap.Get(), descriptorSizeRTV, 0), GetCPUDescriptorHandle(rtvDescriptorHeap.Get(), descriptorSizeRTV, 1) };
+		device->CreateRenderTargetView(swapChainResources[0].Get(), &rtvDesc, rtvHandles[0]);
+		device->CreateRenderTargetView(swapChainResources[1].Get(), &rtvDesc, rtvHandles[1]);
 
 		Microsoft::WRL::ComPtr<ID3D12Resource> depthStencilResource = CreateDepthStencilTextureResource(device, kClientWidth, kClientHeight);
-		D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{ DXGI_FORMAT_D24_UNORM_S8_UINT, D3D12_DSV_DIMENSION_TEXTURE2D, D3D12_DSV_FLAG_NONE };
-		D3D12_CPU_DESCRIPTOR_HANDLE dsvHandleStart = GetCPUDescriptorHandle(dsvDescriptorHeap.Get(), descriptorSizeDSV, 0);
-		device->CreateDepthStencilView(depthStencilResource.Get(), &dsvDesc, dsvHandleStart);
+		D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{ DXGI_FORMAT_D24_UNORM_S8_UINT, D3D12_DSV_DIMENSION_TEXTURE2D };
+		device->CreateDepthStencilView(depthStencilResource.Get(), &dsvDesc, GetCPUDescriptorHandle(dsvDescriptorHeap.Get(), descriptorSizeDSV, 0));
 		commandList->Close();
 
 		Microsoft::WRL::ComPtr<ID3D12Fence> fence = nullptr; uint64_t fenceValue = 0; device->CreateFence(fenceValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
 		HANDLE fenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-		// DirectInput 初期化処理
-		HRESULT hr;
+		// DirectInput
+		IDirectInput8* directInput = nullptr; DirectInput8Create(hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&directInput, nullptr);
+		IDirectInputDevice8* keyboard = nullptr; directInput->CreateDevice(GUID_SysKeyboard, &keyboard, NULL);
+		keyboard->SetDataFormat(&c_dfDIKeyboard); keyboard->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
 
-		// DirectInputオブジェクトの生成
-		IDirectInput8* directInput = nullptr;
-		hr = DirectInput8Create(
-			hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8,
-			(void**)&directInput, nullptr);
-		assert(SUCCEEDED(hr));
+		// XAudio2
+		Microsoft::WRL::ComPtr<IXAudio2> xAudio2; IXAudio2MasteringVoice* masterVoice = nullptr;
+		XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR); xAudio2->CreateMasteringVoice(&masterVoice);
+		SoundData soundData1 = SoundLoadWave("resources/fanfare.wav"); SoundPlayWave(xAudio2.Get(), soundData1);
 
-		// キーボードデバイスの生成
-		IDirectInputDevice8* keyboard = nullptr;
-		hr = directInput->CreateDevice(GUID_SysKeyboard, &keyboard, NULL);
-		assert(SUCCEEDED(hr));
-
-		// 入力データ形式のセット
-		hr = keyboard->SetDataFormat(&c_dfDIKeyboard); // 標準形式
-		assert(SUCCEEDED(hr));
-
-		// 排他制御レベルのセット
-		hr = keyboard->SetCooperativeLevel(
-			hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
-		assert(SUCCEEDED(hr));
-
-		// XAudio2関連の初期化処理
-		Microsoft::WRL::ComPtr<IXAudio2> xAudio2;
-		IXAudio2MasteringVoice* masterVoice = nullptr;
-
-		hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
-		assert(SUCCEEDED(hr));
-
-		hr = xAudio2->CreateMasteringVoice(&masterVoice);
-		assert(SUCCEEDED(hr));
-
-		SoundData soundData1 = SoundLoadWave("resources/fanfare.wav");
-		SoundPlayWave(xAudio2.Get(), soundData1);
-
-		Microsoft::WRL::ComPtr<IDxcUtils> dxcUtils = nullptr; Microsoft::WRL::ComPtr<IDxcCompiler3> dxcCompiler = nullptr; Microsoft::WRL::ComPtr<IDxcIncludeHandler> includeHandler = nullptr;
+		Microsoft::WRL::ComPtr<IDxcUtils> dxcUtils; Microsoft::WRL::ComPtr<IDxcCompiler3> dxcCompiler; Microsoft::WRL::ComPtr<IDxcIncludeHandler> includeHandler;
 		DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&dxcUtils)); DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxcCompiler)); dxcUtils->CreateDefaultIncludeHandler(&includeHandler);
 
 		D3D12_ROOT_PARAMETER rootParameters[4] = {};
@@ -603,7 +334,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		};
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
 		psoDesc.pRootSignature = rootSignature.Get(); psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
-
 		Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = CompileShader(L"Object3d.VS.hlsl", L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
 		Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(L"Object3d.PS.hlsl", L"ps_6_0", dxcUtils, dxcCompiler, includeHandler);
 		psoDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() }; psoDesc.PS = { pixelShaderBlob->GetBufferPointer(), pixelShaderBlob->GetBufferSize() };
@@ -614,27 +344,32 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 
 		D3D12_HEAP_PROPERTIES uploadHeapProperties{ D3D12_HEAP_TYPE_UPLOAD };
 
-		ModelData modelData = LoadObjFile("resources", "plane.obj");
+		ModelData planeModelData = LoadObjFile("resources", "plane.obj");
+		ModelData sphereModelData = CreateSphereModel(32);
 
-		D3D12_RESOURCE_DESC vertexResourceDesc{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, sizeof(Vertex) * modelData.vertices.size(), 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
-		Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource = nullptr;
-		device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexResource));
+		// Planeバッファ
+		D3D12_RESOURCE_DESC vertexResourceDescPlane{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, sizeof(Vertex) * planeModelData.vertices.size(), 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
+		Microsoft::WRL::ComPtr<ID3D12Resource> vertexResourcePlane = nullptr;
+		device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDescPlane, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexResourcePlane));
+		Vertex* vertexDataPlane = nullptr; vertexResourcePlane->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataPlane));
+		std::memcpy(vertexDataPlane, planeModelData.vertices.data(), sizeof(Vertex) * planeModelData.vertices.size());
+		vertexResourcePlane->Unmap(0, nullptr);
+		D3D12_VERTEX_BUFFER_VIEW vertexBufferViewPlane{ vertexResourcePlane->GetGPUVirtualAddress(), static_cast<UINT>(sizeof(Vertex) * planeModelData.vertices.size()), sizeof(Vertex) };
 
-		D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
-		vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
-		vertexBufferView.SizeInBytes = static_cast<UINT>(sizeof(Vertex) * modelData.vertices.size());
-		vertexBufferView.StrideInBytes = sizeof(Vertex);
+		// Sphereバッファ
+		D3D12_RESOURCE_DESC vertexResourceDescSphere{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, sizeof(Vertex) * sphereModelData.vertices.size(), 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
+		Microsoft::WRL::ComPtr<ID3D12Resource> vertexResourceSphere = nullptr;
+		device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDescSphere, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexResourceSphere));
+		Vertex* vertexDataSphere = nullptr; vertexResourceSphere->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataSphere));
+		std::memcpy(vertexDataSphere, sphereModelData.vertices.data(), sizeof(Vertex) * sphereModelData.vertices.size());
+		vertexResourceSphere->Unmap(0, nullptr);
+		D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSphere{ vertexResourceSphere->GetGPUVirtualAddress(), static_cast<UINT>(sizeof(Vertex) * sphereModelData.vertices.size()), sizeof(Vertex) };
 
-		Vertex* vertexData = nullptr;
-		vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
-		std::memcpy(vertexData, modelData.vertices.data(), sizeof(Vertex) * modelData.vertices.size());
-		vertexResource->Unmap(0, nullptr);
-
-		D3D12_RESOURCE_DESC vertexResourceDescSprite = vertexResourceDesc; vertexResourceDescSprite.Width = sizeof(Vertex) * 4;
+		// Sprite Vertex Buffer
+		D3D12_RESOURCE_DESC vertexResourceDescSprite{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, sizeof(Vertex) * 4, 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
 		Microsoft::WRL::ComPtr<ID3D12Resource> vertexResourceSprite = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDescSprite, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexResourceSprite));
 		D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSprite{ vertexResourceSprite->GetGPUVirtualAddress(), sizeof(Vertex) * 4, sizeof(Vertex) };
 		Vertex* vertexDataSprite = nullptr; vertexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataSprite));
-
 		Vector3 nSprite = { 0.0f, 0.0f, -1.0f };
 		vertexDataSprite[0] = { {0.0f, 360.0f, 0.0f, 1.0f}, {0.0f, 1.0f}, nSprite };
 		vertexDataSprite[1] = { {0.0f, 0.0f, 0.0f, 1.0f},   {0.0f, 0.0f}, nSprite };
@@ -644,53 +379,43 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 
 		D3D12_RESOURCE_DESC indexResourceDescSprite{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, sizeof(uint32_t) * 6, 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
 		Microsoft::WRL::ComPtr<ID3D12Resource> indexResourceSprite = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &indexResourceDescSprite, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&indexResourceSprite));
-
-		D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite{};
-		indexBufferViewSprite.BufferLocation = indexResourceSprite->GetGPUVirtualAddress();
-		indexBufferViewSprite.SizeInBytes = sizeof(uint32_t) * 6;
-		indexBufferViewSprite.Format = DXGI_FORMAT_R32_UINT;
-
+		D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite{ indexResourceSprite->GetGPUVirtualAddress(), sizeof(uint32_t) * 6, DXGI_FORMAT_R32_UINT };
 		uint32_t* indexDataSprite = nullptr; indexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&indexDataSprite));
-		indexDataSprite[0] = 0; indexDataSprite[1] = 1; indexDataSprite[2] = 2;
-		indexDataSprite[3] = 1; indexDataSprite[4] = 3; indexDataSprite[5] = 2;
+		indexDataSprite[0] = 0; indexDataSprite[1] = 1; indexDataSprite[2] = 2; indexDataSprite[3] = 1; indexDataSprite[4] = 3; indexDataSprite[5] = 2;
 		indexResourceSprite->Unmap(0, nullptr);
 
 		D3D12_RESOURCE_DESC materialResourceDesc{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, (sizeof(Material) + 255) & ~255, 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
 
 		Microsoft::WRL::ComPtr<ID3D12Resource> materialResource = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &materialResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&materialResource));
 		Material* materialData = nullptr; materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
-		materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f }; materialData->enableLighting = true;
-		materialData->uvTransform = MakeIdentity4x4();
+		materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f }; materialData->enableLighting = 1; materialData->lightingType = 2; // デフォルト: Half Lambert
+		materialData->uvTransform = Matrix4x4::MakeIdentity4x4();
 
 		Microsoft::WRL::ComPtr<ID3D12Resource> materialResourceSprite = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &materialResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&materialResourceSprite));
 		Material* materialDataSprite = nullptr; materialResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&materialDataSprite));
-		materialDataSprite->color = { 1.0f, 1.0f, 1.0f, 1.0f }; materialDataSprite->enableLighting = false;
-		materialDataSprite->uvTransform = MakeIdentity4x4();
+		materialDataSprite->color = { 1.0f, 1.0f, 1.0f, 1.0f }; materialDataSprite->enableLighting = 0; materialDataSprite->lightingType = 0;
+		materialDataSprite->uvTransform = Matrix4x4::MakeIdentity4x4();
 
 		D3D12_RESOURCE_DESC wvpResourceDesc{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, (sizeof(TransformationMatrix) + 255) & ~255, 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
 		Microsoft::WRL::ComPtr<ID3D12Resource> wvpResource = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &wvpResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&wvpResource));
 		TransformationMatrix* wvpData = nullptr; wvpResource->Map(0, nullptr, reinterpret_cast<void**>(&wvpData));
-		wvpData->wvp = MakeIdentity4x4(); wvpData->world = MakeIdentity4x4();
+		wvpData->wvp = Matrix4x4::MakeIdentity4x4(); wvpData->world = Matrix4x4::MakeIdentity4x4();
 
-		Transform transformModel{ {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
+		Transform transformModel;
 
 		Microsoft::WRL::ComPtr<ID3D12Resource> transformationMatrixResourceSprite = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &wvpResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&transformationMatrixResourceSprite));
 		TransformationMatrix* transformationMatrixDataSprite = nullptr; transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
-		transformationMatrixDataSprite->wvp = MakeIdentity4x4(); transformationMatrixDataSprite->world = MakeIdentity4x4();
-		Transform transformSprite{ {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
-
-		Transform uvTransformSprite{ { 1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f } };
+		transformationMatrixDataSprite->wvp = Matrix4x4::MakeIdentity4x4(); transformationMatrixDataSprite->world = Matrix4x4::MakeIdentity4x4();
+		Transform transformSprite;
+		Transform uvTransformSprite;
 
 		D3D12_RESOURCE_DESC directionalLightResourceDesc{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, (sizeof(DirectionalLight) + 255) & ~255, 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
 		Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &directionalLightResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&directionalLightResource));
 		DirectionalLight* directionalLightData = nullptr; directionalLightResource->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData));
 		directionalLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f }; directionalLightData->direction = { 0.0f, -1.0f, 0.0f }; directionalLightData->intensity = 1.0f;
 
-		std::wstring modelTexturePath = L"Resources/uvChecker.png";
-		if (!modelData.material.textureFilePath.empty()) {
-			modelTexturePath = ConvertString(modelData.material.textureFilePath);
-		}
-		std::vector<uint8_t> textureData; D3D12_RESOURCE_DESC textureDesc{}; LoadTextureFile(modelTexturePath, textureData, textureDesc);
+		// Textures
+		std::vector<uint8_t> textureData; D3D12_RESOURCE_DESC textureDesc{}; LoadTextureFile(L"Resources/uvChecker.png", textureData, textureDesc);
 		D3D12_HEAP_PROPERTIES textureHeapProps{ D3D12_HEAP_TYPE_CUSTOM, D3D12_CPU_PAGE_PROPERTY_WRITE_BACK, D3D12_MEMORY_POOL_L0 };
 		Microsoft::WRL::ComPtr<ID3D12Resource> textureResource = nullptr; device->CreateCommittedResource(&textureHeapProps, D3D12_HEAP_FLAG_NONE, &textureDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&textureResource));
 		textureResource->WriteToSubresource(0, nullptr, textureData.data(), (UINT)(textureDesc.Width * 4), (UINT)textureData.size());
@@ -717,89 +442,92 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		ImGui_ImplDX12_Init(device.Get(), 2, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, srvDescriptorHeap.Get(), GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0), GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0));
 #endif
 
-		// デバッグカメラのインスタンス化と初期化
-		DebugCamera debugCamera;
-		debugCamera.Initialize();
-
+		DebugCamera debugCamera; debugCamera.Initialize();
 		bool isAutoRotate = false; bool useMonsterBall = false;
 		float pi_f = 3.1415926535f;
+		bool drawSprite = true;
 
-		bool drawSprite = false;
+		// 表示モデル切り替え (0: Plane, 1: Sphere)
+		int currentModelType = 1;
 
 		MSG msg{};
 		while (msg.message != WM_QUIT) {
 			if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-				TranslateMessage(&msg);
-				DispatchMessage(&msg);
+				TranslateMessage(&msg); DispatchMessage(&msg);
 			} else {
-				// =========================================================
-				// 🌟 DirectX毎フレーム処理（キー入力の更新）
-				// =========================================================
-				// 1. 前フレームのキー状態を保存
 				std::memcpy(keyPre, key, sizeof(key));
-
-				// 2. キーボード情報の取得開始
-				keyboard->Acquire();
-
-				// 3. 全キーの入力状態を取得
-				keyboard->GetDeviceState(sizeof(key), key);
-
-				// 4. デバッグカメラの更新
+				keyboard->Acquire(); keyboard->GetDeviceState(sizeof(key), key);
 				debugCamera.Update(key);
 
-				// 🌟 英語化された入力判定関数の使用例
-				if (IsKeyPressed(DIK_0)) {
-					OutputDebugStringA("Pressing 0\n"); // 0キーを押し続けている間
-				}
-
-				if (IsKeyTriggered(DIK_0)) {
-					OutputDebugStringA("Triggered 0\n"); // 0キーを押した瞬間
-				}
-				// =========================================================
-
-				if (isAutoRotate) { transformModel.rotate[1] += 0.01f; if (transformModel.rotate[1] > pi_f * 2.0f) transformModel.rotate[1] -= pi_f * 2.0f; }
+				if (isAutoRotate) { transformModel.rotate.y += 0.01f; if (transformModel.rotate.y > pi_f * 2.0f) transformModel.rotate.y -= pi_f * 2.0f; }
 
 #ifdef USE_IMGUI
 				ImGui_ImplDX12_NewFrame(); ImGui_ImplWin32_NewFrame(); ImGui::NewFrame();
 				ImGui::Begin("Settings");
-				if (ImGui::CollapsingHeader("Material", ImGuiTreeNodeFlags_DefaultOpen)) { ImGui::ColorEdit4("color", &materialData->color.x); }
-				if (ImGui::CollapsingHeader("TransformModel", ImGuiTreeNodeFlags_DefaultOpen)) { ImGui::Checkbox("useMonsterBall", &useMonsterBall); ImGui::Checkbox("Auto Rotate", &isAutoRotate); ImGui::SliderFloat3("rotate", transformModel.rotate, -pi_f, pi_f); }
+
+				// モデル選択
+				const char* modelNames[] = { "Plane ", "Sphere " };
+				ImGui::Combo("Model Select", &currentModelType, modelNames, IM_ARRAYSIZE(modelNames));
+
+				if (ImGui::CollapsingHeader("Object (SRT)", ImGuiTreeNodeFlags_DefaultOpen)) {
+					ImGui::DragFloat3("Translate", &transformModel.translate.x, 0.01f);
+					ImGui::SliderFloat3("Rotate", &transformModel.rotate.x, -pi_f, pi_f);
+					ImGui::DragFloat3("Scale", &transformModel.scale.x, 0.01f);
+					ImGui::Checkbox("Auto Rotate", &isAutoRotate);
+				}
+
+				if (ImGui::CollapsingHeader("Material", ImGuiTreeNodeFlags_DefaultOpen)) {
+					ImGui::ColorEdit4("Color", &materialData->color.x);
+					ImGui::Checkbox("useMonsterBall Texture", &useMonsterBall);
+
+					// ライティングモード選択
+					const char* lightingItems[] = { "None ", "Lambert", "Half Lambert" };
+					int currentLighting = materialData->lightingType;
+					if (ImGui::Combo("Lighting Mode", &currentLighting, lightingItems, IM_ARRAYSIZE(lightingItems))) {
+						materialData->lightingType = currentLighting;
+						materialData->enableLighting = (currentLighting > 0) ? 1 : 0;
+					}
+				}
 
 				if (ImGui::CollapsingHeader("Sprite Options", ImGuiTreeNodeFlags_DefaultOpen)) {
 					ImGui::Checkbox("Draw Sprite", &drawSprite);
+					if (drawSprite) {
+						ImGui::SliderFloat2("Sprite Scale", &transformSprite.scale.x, 0.1f, 5.0f);
+						ImGui::SliderFloat2("Sprite Translate", &transformSprite.translate.x, -200.0f, 1000.0f);
+						ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate.x, 0.01f, -10.0f, 10.0f);
+						ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f, -10.0f, 10.0f);
+						ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
+					}
 				}
-				if (drawSprite && ImGui::CollapsingHeader("TransformSprite", ImGuiTreeNodeFlags_DefaultOpen)) { ImGui::SliderFloat2("scale", transformSprite.scale, 0.1f, 5.0f); ImGui::SliderFloat2("translate", transformSprite.translate, -200.0f, 1000.0f); }
-				if (drawSprite && ImGui::CollapsingHeader("UV Transform Sprite", ImGuiTreeNodeFlags_DefaultOpen)) {
-					ImGui::DragFloat2("UVTranslate", uvTransformSprite.translate, 0.01f, -10.0f, 10.0f);
-					ImGui::DragFloat2("UVScale", uvTransformSprite.scale, 0.01f, -10.0f, 10.0f);
-					ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate[2]);
+
+				if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+					ImGui::SliderFloat3("Light Direction", &directionalLightData->direction.x, -1.0f, 1.0f);
+					ImGui::ColorEdit4("Light Color", &directionalLightData->color.x);
+					ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f, 5.0f);
 				}
-				if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) { ImGui::SliderFloat3("Light Direction", &directionalLightData->direction.x, -1.0f, 1.0f); ImGui::ColorEdit4("Light Color", &directionalLightData->color.x); ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f, 5.0f); }
+
 				ImGui::End(); ImGui::Render();
 #endif
 
-				Matrix4x4 materialTransformMatrix = MakeUVTransformMatrix(uvTransformSprite.scale, uvTransformSprite.rotate[2], uvTransformSprite.translate);
+				Matrix4x4 materialTransformMatrix = MakeUVTransformMatrix(uvTransformSprite.scale, uvTransformSprite.rotate.z, uvTransformSprite.translate);
 				materialDataSprite->uvTransform = materialTransformMatrix;
 
-				// DebugCameraからビュー行列を取得
 				Matrix4x4 viewMatrix = debugCamera.GetMatView();
-
-				Matrix4x4 worldMatrixModel = MakeAffineMatrix(transformModel.scale, transformModel.rotate, transformModel.translate);
-				Matrix4x4 projectionMatrixModel = MakePerspectiveFovMatrix(0.45f, (float)kClientWidth / kClientHeight, 0.1f, 100.0f);
-				wvpData->wvp = Multiply(Multiply(worldMatrixModel, viewMatrix), projectionMatrixModel);
+				Matrix4x4 worldMatrixModel = Matrix4x4::MakeAffineMatrix(transformModel.scale, transformModel.rotate, transformModel.translate);
+				Matrix4x4 projectionMatrixModel = Matrix4x4::MakePerspectiveFovMatrix(0.45f, (float)kClientWidth / kClientHeight, 0.1f, 100.0f);
+				wvpData->wvp = Matrix4x4::Multiply(Matrix4x4::Multiply(worldMatrixModel, viewMatrix), projectionMatrixModel);
 				wvpData->world = worldMatrixModel;
 
-				Matrix4x4 worldMatrixSprite = MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
-				Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(0.0f, 0.0f, (float)kClientWidth, (float)kClientHeight, 0.0f, 100.0f);
-				transformationMatrixDataSprite->wvp = Multiply(worldMatrixSprite, projectionMatrixSprite);
+				Matrix4x4 worldMatrixSprite = Matrix4x4::MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
+				Matrix4x4 projectionMatrixSprite = Matrix4x4::MakeOrthographicMatrix(0.0f, 0.0f, (float)kClientWidth, (float)kClientHeight, 0.0f, 100.0f);
+				transformationMatrixDataSprite->wvp = Matrix4x4::Multiply(worldMatrixSprite, projectionMatrixSprite);
 				transformationMatrixDataSprite->world = worldMatrixSprite;
 
 				commandAllocator->Reset();
 				commandList->Reset(commandAllocator.Get(), nullptr);
 				UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
 
-				D3D12_RESOURCE_BARRIER barrier{};
-				barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+				D3D12_RESOURCE_BARRIER barrier{}; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 				barrier.Transition.pResource = swapChainResources[backBufferIndex].Get();
 				barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 				barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
@@ -824,14 +552,20 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 
 				commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
 
-				// 1. 3Dモデルの描画
+				// 1. 3Dモデル描画
 				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-				commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 				commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 				commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU1);
-				commandList->DrawInstanced(static_cast<UINT>(modelData.vertices.size()), 1, 0, 0);
 
-				// 2. 2Dスプライトの描画
+				if (currentModelType == 0) {
+					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewPlane);
+					commandList->DrawInstanced(static_cast<UINT>(planeModelData.vertices.size()), 1, 0, 0);
+				} else {
+					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSphere);
+					commandList->DrawInstanced(static_cast<UINT>(sphereModelData.vertices.size()), 1, 0, 0);
+				}
+
+				// 2. 2Dスプライト描画
 				if (drawSprite) {
 					commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
 					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
@@ -854,8 +588,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 				commandQueue->ExecuteCommandLists(1, commandLists);
 
 				swapChain->Present(1, 0);
-				fenceValue++;
-				commandQueue->Signal(fence.Get(), fenceValue);
+				fenceValue++; commandQueue->Signal(fence.Get(), fenceValue);
 				if (fence->GetCompletedValue() < fenceValue) {
 					fence->SetEventOnCompletion(fenceValue, fenceEvent);
 					WaitForSingleObject(fenceEvent, INFINITE);
@@ -864,32 +597,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		}
 
 #ifdef USE_IMGUI
-		ImGui_ImplDX12_Shutdown();
-		ImGui_ImplWin32_Shutdown();
-		ImGui::DestroyContext();
+		ImGui_ImplDX12_Shutdown(); ImGui_ImplWin32_Shutdown(); ImGui::DestroyContext();
 #endif
 
-		// DirectInputの解放処理
-		if (keyboard) {
-			keyboard->Unacquire();
-			keyboard->Release();
-		}
-		if (directInput) {
-			directInput->Release();
-		}
+		if (keyboard) { keyboard->Unacquire(); keyboard->Release(); }
+		if (directInput) directInput->Release();
+		xAudio2.Reset(); SoundUnload(&soundData1);
 
-		// XAudio2解放
-		xAudio2.Reset();
-
-		// 音声データ解放
-		SoundUnload(&soundData1);
-
-		directionalLightResource->Unmap(0, nullptr);
-		materialResourceSprite->Unmap(0, nullptr);
-		transformationMatrixResourceSprite->Unmap(0, nullptr);
-		wvpResource->Unmap(0, nullptr);
-		materialResource->Unmap(0, nullptr);
-
+		directionalLightResource->Unmap(0, nullptr); materialResourceSprite->Unmap(0, nullptr);
+		transformationMatrixResourceSprite->Unmap(0, nullptr); wvpResource->Unmap(0, nullptr); materialResource->Unmap(0, nullptr);
 		CloseHandle(fenceEvent);
 	}
 
