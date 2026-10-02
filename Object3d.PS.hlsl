@@ -46,7 +46,9 @@ PixelShaderOutput main(VertexShaderOutput input)
             lightingFactor = pow(NdotL * 0.5f + 0.5f, 2.0f);
         }
         
-        output.color = gMaterial.color * textureColor * gDirectionalLight.color * lightingFactor * gDirectionalLight.intensity;
+        // 色とアルファ値の計算を分離
+        output.color.rgb = gMaterial.color.rgb * textureColor.rgb * gDirectionalLight.color.rgb * lightingFactor * gDirectionalLight.intensity;
+        output.color.a = gMaterial.color.a * textureColor.a;
     }
     else
     {
