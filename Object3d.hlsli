@@ -15,11 +15,12 @@ struct VertexShaderOutput
 // C++側のメモリ配置（16バイトアライメント）に合わせた構造体
 struct Material
 {
-    float4 color;
-    int enableLighting; // 0: 無効, 1: 有効
-    int lightingType; // 0: None, 1: Lambert, 2: Half Lambert
-    float2 padding; // パディング（16バイト境界合わせ）
-    float4x4 uvTransform;
+    float4 color; // 16バイト (offset: 0)
+    int enableLighting; // 4バイト  (offset: 16)
+    int lightingType; // 4バイト  (offset: 20)
+    int enableAlphaDiscard; // 4バイト  (offset: 24) 0:無効, 1:有効 (2値抜き)
+    float discardThreshold; // 4バイト  (offset: 28) 棄却アルファ閾値
+    float4x4 uvTransform; // 64バイト (offset: 32)
 };
 
 struct TransformationMatrix
