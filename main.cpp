@@ -41,6 +41,17 @@
 #include "externals/imgui/imgui_impl_win32.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
+// ブレンドモード定義
+enum BlendMode {
+	kBlendModeNone,     //!< ブレンドなし
+	kBlendModeNormal,   //!< 通常αブレンド（デフォルト）
+	kBlendModeAdd,      //!< 加算
+	kBlendModeSubtract, //!< 減算（逆減算）
+	kBlendModeMultiply, //!< 乗算
+	kBlendModeScreen,   //!< スクリーン
+	kCountOfBlendMode
+};
+
 // キーバッファ
 BYTE key[256] = {};
 BYTE keyPre[256] = {};
@@ -97,7 +108,6 @@ std::wstring ConvertString(const std::string& str) {
 	return wstr;
 }
 
-// 補助用構造体（Vector3 は Vector3.h を使用）
 struct Vector2 { float x, y; };
 struct Vector4 { float x, y, z, w; };
 struct Vertex { Vector4 position; Vector2 texcoord; Vector3 normal; };
@@ -332,26 +342,67 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 			{"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
 			{"NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
 		};
-		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
-		psoDesc.pRootSignature = rootSignature.Get(); psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
+
 		Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = CompileShader(L"Object3d.VS.hlsl", L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
 		Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(L"Object3d.PS.hlsl", L"ps_6_0", dxcUtils, dxcCompiler, includeHandler);
-		psoDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() }; psoDesc.PS = { pixelShaderBlob->GetBufferPointer(), pixelShaderBlob->GetBufferSize() };
 
-		// 【資料に基づく変更点】NormalBlend (アルファブレンド) の設定
-		psoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-		psoDesc.BlendState.RenderTarget[0].BlendEnable = TRUE;
-		psoDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
-		psoDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-		psoDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-		psoDesc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-		psoDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-		psoDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
+		psoDesc.pRootSignature = rootSignature.Get(); psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
+		psoDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
+		psoDesc.PS = { pixelShaderBlob->GetBufferPointer(), pixelShaderBlob->GetBufferSize() };
 		psoDesc.RasterizerState = { D3D12_FILL_MODE_SOLID, D3D12_CULL_MODE_NONE };
-		psoDesc.DepthStencilState = { TRUE, D3D12_DEPTH_WRITE_MASK_ALL, D3D12_COMPARISON_FUNC_LESS_EQUAL }; psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-		psoDesc.NumRenderTargets = 1; psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB; psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE; psoDesc.SampleDesc.Count = 1; psoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
-		Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineState = nullptr; device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&pipelineState));
+		psoDesc.DepthStencilState = { TRUE, D3D12_DEPTH_WRITE_MASK_ALL, D3D12_COMPARISON_FUNC_LESS_EQUAL };
+		psoDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		psoDesc.NumRenderTargets = 1;
+		psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+		psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+		psoDesc.SampleDesc.Count = 1;
+		psoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
+		// 各種ブレンドモード用
+		Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineStates[kCountOfBlendMode];
+
+		for (int i = 0; i < kCountOfBlendMode; ++i) {
+			psoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+			psoDesc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+			psoDesc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+			psoDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+			psoDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+
+			switch (i) {
+			case kBlendModeNone:
+				psoDesc.BlendState.RenderTarget[0].BlendEnable = FALSE;
+				break;
+			case kBlendModeNormal:
+				psoDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+				psoDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+				psoDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+				break;
+			case kBlendModeAdd:
+				psoDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+				psoDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+				psoDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+				break;
+			case kBlendModeSubtract:
+				psoDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+				psoDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_REV_SUBTRACT;
+				psoDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+				break;
+			case kBlendModeMultiply:
+				psoDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ZERO;
+				psoDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+				psoDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_SRC_COLOR;
+				break;
+			case kBlendModeScreen:
+				psoDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_INV_DEST_COLOR;
+				psoDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+				psoDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+				break;
+			}
+
+			HRESULT hr = device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&pipelineStates[i]));
+			assert(SUCCEEDED(hr));
+		}
 
 		D3D12_HEAP_PROPERTIES uploadHeapProperties{ D3D12_HEAP_TYPE_UPLOAD };
 
@@ -461,6 +512,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		// 表示モデル切り替え (0: Plane, 1: Sphere)
 		int currentModelType = 1;
 
+		// 現在選択されているブレンドモード
+		int currentBlendMode = kBlendModeNormal;
+
 		MSG msg{};
 		while (msg.message != WM_QUIT) {
 			if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
@@ -475,6 +529,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 #ifdef USE_IMGUI
 				ImGui_ImplDX12_NewFrame(); ImGui_ImplWin32_NewFrame(); ImGui::NewFrame();
 				ImGui::Begin("Settings");
+
+				// ブレンドモード切替用 UI
+				const char* blendItems[] = { "kBlendModeNone", "kBlendModeNormal", "kBlendModeAdd", "kBlendModeSubtract", "kBlendModeMultiply", "kBlendModeScreen" };
+				ImGui::Combo("Blend", &currentBlendMode, blendItems, IM_ARRAYSIZE(blendItems));
 
 				// モデル選択
 				const char* modelNames[] = { "Plane ", "Sphere " };
@@ -558,7 +616,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 				commandList->RSSetViewports(1, &viewport);
 				commandList->RSSetScissorRects(1, &scissorRect);
 				commandList->SetGraphicsRootSignature(rootSignature.Get());
-				commandList->SetPipelineState(pipelineState.Get());
+
+				// --- 選択されているブレンドモードのPSOを適用 ---
+				commandList->SetPipelineState(pipelineStates[currentBlendMode].Get());
+
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 				commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
