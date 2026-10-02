@@ -409,7 +409,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 
 		ModelData planeModelData = LoadObjFile("resources", "plane.obj");
 		ModelData sphereModelData = CreateSphereModel(32);
-		// 【追加】fence.obj の読み込み
 		ModelData fenceModelData = LoadObjFile("resources", "fence.obj");
 
 		// Planeバッファ
@@ -430,7 +429,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		vertexResourceSphere->Unmap(0, nullptr);
 		D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSphere{ vertexResourceSphere->GetGPUVirtualAddress(), static_cast<UINT>(sizeof(Vertex) * sphereModelData.vertices.size()), sizeof(Vertex) };
 
-		// 【追加】Fenceバッファの作成
+		// Fenceバッファの作成
 		D3D12_RESOURCE_DESC vertexResourceDescFence{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, sizeof(Vertex) * fenceModelData.vertices.size(), 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
 		Microsoft::WRL::ComPtr<ID3D12Resource> vertexResourceFence = nullptr;
 		device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDescFence, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexResourceFence));
@@ -501,7 +500,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		Microsoft::WRL::ComPtr<ID3D12Resource> textureResource2 = nullptr; device->CreateCommittedResource(&textureHeapProps, D3D12_HEAP_FLAG_NONE, &textureDesc2, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&textureResource2));
 		textureResource2->WriteToSubresource(0, nullptr, textureData2.data(), (UINT)(textureDesc2.Width * 4), (UINT)textureData2.size());
 
-		// 【追加】fence.png テクスチャの読み込み
+		// fence.png テクスチャの読み込み
 		std::vector<uint8_t> textureData3; D3D12_RESOURCE_DESC textureDesc3{}; LoadTextureFile(L"Resources/fence.png", textureData3, textureDesc3);
 		Microsoft::WRL::ComPtr<ID3D12Resource> textureResource3 = nullptr; device->CreateCommittedResource(&textureHeapProps, D3D12_HEAP_FLAG_NONE, &textureDesc3, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&textureResource3));
 		textureResource3->WriteToSubresource(0, nullptr, textureData3.data(), (UINT)(textureDesc3.Width * 4), (UINT)textureData3.size());
@@ -516,7 +515,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2{ textureDesc2.Format, D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING }; srvDesc2.Texture2D.MipLevels = 1;
 		device->CreateShaderResourceView(textureResource2.Get(), &srvDesc2, textureSrvHandleCPU2);
 
-		// 【追加】fence 用 SRV (Index 3)
+		// fence用SRV(Index3)
 		D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU3 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
 		D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU3 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
 		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc3{ textureDesc3.Format, D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING }; srvDesc3.Texture2D.MipLevels = 1;
