@@ -5,8 +5,6 @@
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")
 
-using namespace Microsoft::WRL;
-
 void Input::Initialize(HINSTANCE hInstance, HWND hwnd)
 {
 	HRESULT result = S_OK;
@@ -37,6 +35,7 @@ void Input::Update()
 	keyboard_->Acquire();
 
 	// 全キーの状態を取得する
+	BYTE key[256] = {};
 	keyboard_->GetDeviceState(sizeof(key_), key_);
 }
 

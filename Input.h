@@ -1,13 +1,17 @@
 #pragma once
 
 #include <Windows.h>
-#define DIRECTINPUT_VERSION 0x0800
+#define DIRECTINPUT_VERSION 0x0800 // DirectInputのバージョン指定
 #include <dinput.h>
 #include <wrl.h>
 #include <cstdint>
 
 class Input
 {
+public:
+	// namespace省略
+	template <class T> using ComPtr = Microsoft::WRL::ComPtr<T>;
+
 public:
 	// 初期化（仮引数を指定）
 	void Initialize(HINSTANCE hInstance, HWND hwnd);
@@ -24,9 +28,12 @@ public:
 	const BYTE* GetKeyBuffer() const { return key_; }
 
 private:
-	// DirectInputのポインタ（Microsoft::WRL::ComPtrを使用）
-	Microsoft::WRL::ComPtr<IDirectInput8> directInput_ = nullptr;
-	Microsoft::WRL::ComPtr<IDirectInputDevice8> keyboard_ = nullptr;
+	// DirectInputのポインタ
+	ComPtr<IDirectInput8> directInput_ = nullptr;
+	ComPtr<IDirectInputDevice8> keyboard_ = nullptr;
+
+	// キーボードのデバイス
+	ComPtr<IDirectInputDevice8> keyboard;
 
 	// キーバッファ
 	BYTE key_[256] = {};
