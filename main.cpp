@@ -124,7 +124,13 @@ struct Material {
 	Matrix4x4 uvTransform;
 };
 
-struct TransformationMatrix { Matrix4x4 wvp; Matrix4x4 world; };
+// インスタンス用構造体 (HLSLの ParticleForGPU に対応)
+struct ParticleForGPU {
+	Matrix4x4 wvp;
+	Matrix4x4 world;
+	Vector4 color;
+};
+
 struct Transform {
 	Vector3 scale{ 1.0f, 1.0f, 1.0f };
 	Vector3 rotate{ 0.0f, 0.0f, 0.0f };
@@ -137,6 +143,19 @@ Matrix4x4 MakeUVTransformMatrix(const Vector3& scale, float rotateZ, const Vecto
 	Matrix4x4 mRotZ = Matrix4x4::MakeRotateZMatrix(rotateZ);
 	Matrix4x4 mTranslate = Matrix4x4::MakeTranslateMatrix({ translate.x, translate.y, 0.0f });
 	return Matrix4x4::Multiply(Matrix4x4::Multiply(mScale, mRotZ), mTranslate);
+}
+
+// 四角形（Primitive Quad）の生成関数
+ModelData CreateQuadModel() {
+	ModelData modelData;
+	modelData.vertices.push_back({ .position = { 1.0f,  1.0f, 0.0f, 1.0f}, .texcoord = {0.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f} });
+	modelData.vertices.push_back({ .position = {-1.0f,  1.0f, 0.0f, 1.0f}, .texcoord = {1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f} });
+	modelData.vertices.push_back({ .position = { 1.0f, -1.0f, 0.0f, 1.0f}, .texcoord = {0.0f, 1.0f}, .normal = {0.0f, 0.0f, 1.0f} });
+	modelData.vertices.push_back({ .position = { 1.0f, -1.0f, 0.0f, 1.0f}, .texcoord = {0.0f, 1.0f}, .normal = {0.0f, 0.0f, 1.0f} });
+	modelData.vertices.push_back({ .position = {-1.0f,  1.0f, 0.0f, 1.0f}, .texcoord = {1.0f, 0.0f}, .normal = {0.0f, 0.0f, 1.0f} });
+	modelData.vertices.push_back({ .position = {-1.0f, -1.0f, 0.0f, 1.0f}, .texcoord = {1.0f, 1.0f}, .normal = {0.0f, 0.0f, 1.0f} });
+	modelData.material.textureFilePath = "./resources/uvChecker.png";
+	return modelData;
 }
 
 ModelData CreateSphereModel(uint32_t kSubdivision = 32) {
@@ -268,7 +287,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 	RegisterClass(&wc);
 	const int32_t kClientWidth = 1280; const int32_t kClientHeight = 720;
 	RECT wrc = { 0, 0, kClientWidth, kClientHeight }; AdjustWindowRect(&wrc, WS_OVERLAPPEDWINDOW, false);
-	HWND hwnd = CreateWindow(wc.lpszClassName, L"CG2_evaluation_Work3", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, wrc.right - wrc.left, wrc.bottom - wrc.top, nullptr, nullptr, wc.hInstance, nullptr);
+	HWND hwnd = CreateWindow(wc.lpszClassName, L"CG3_Work", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, wrc.right - wrc.left, wrc.bottom - wrc.top, nullptr, nullptr, wc.hInstance, nullptr);
 	ShowWindow(hwnd, SW_SHOW);
 
 	{
@@ -325,12 +344,25 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		Microsoft::WRL::ComPtr<IDxcUtils> dxcUtils; Microsoft::WRL::ComPtr<IDxcCompiler3> dxcCompiler; Microsoft::WRL::ComPtr<IDxcIncludeHandler> includeHandler;
 		DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&dxcUtils)); DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxcCompiler)); dxcUtils->CreateDefaultIncludeHandler(&includeHandler);
 
+		// Root Signature の構成（インスタンシング用 StructuredBuffer SRV を追加）
 		D3D12_ROOT_PARAMETER rootParameters[4] = {};
-		rootParameters[0] = { D3D12_ROOT_PARAMETER_TYPE_CBV, {}, D3D12_SHADER_VISIBILITY_PIXEL }; rootParameters[0].Descriptor.ShaderRegister = 0;
-		rootParameters[1] = { D3D12_ROOT_PARAMETER_TYPE_CBV, {}, D3D12_SHADER_VISIBILITY_VERTEX }; rootParameters[1].Descriptor.ShaderRegister = 1;
-		D3D12_DESCRIPTOR_RANGE descriptorRange[1] = { {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND} };
-		rootParameters[2] = { D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, {}, D3D12_SHADER_VISIBILITY_PIXEL }; rootParameters[2].DescriptorTable = { 1, descriptorRange };
-		rootParameters[3] = { D3D12_ROOT_PARAMETER_TYPE_CBV, {}, D3D12_SHADER_VISIBILITY_PIXEL }; rootParameters[3].Descriptor.ShaderRegister = 1;
+		// [0] Material (CBV, b0, Pixel)
+		rootParameters[0] = { D3D12_ROOT_PARAMETER_TYPE_CBV, {}, D3D12_SHADER_VISIBILITY_PIXEL };
+		rootParameters[0].Descriptor.ShaderRegister = 0;
+
+		// [1] Texture (Descriptor Table, t0, Pixel)
+		D3D12_DESCRIPTOR_RANGE descriptorRangeTexture[1] = { {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND} };
+		rootParameters[1] = { D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, {}, D3D12_SHADER_VISIBILITY_PIXEL };
+		rootParameters[1].DescriptorTable = { 1, descriptorRangeTexture };
+
+		// [2] Light (CBV, b1, Pixel)
+		rootParameters[2] = { D3D12_ROOT_PARAMETER_TYPE_CBV, {}, D3D12_SHADER_VISIBILITY_PIXEL };
+		rootParameters[2].Descriptor.ShaderRegister = 1;
+
+		// [3] StructuredBuffer Instancing Data (Descriptor Table, t1, Vertex)
+		D3D12_DESCRIPTOR_RANGE descriptorRangeInstancing[1] = { {D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1, 0, D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND} };
+		rootParameters[3] = { D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE, {}, D3D12_SHADER_VISIBILITY_VERTEX };
+		rootParameters[3].DescriptorTable = { 1, descriptorRangeInstancing };
 
 		D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = { {D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, 0, 0, D3D12_COMPARISON_FUNC_NEVER, D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK, 0.0f, D3D12_FLOAT32_MAX, 0, 0, D3D12_SHADER_VISIBILITY_PIXEL} };
 
@@ -344,8 +376,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 			{"NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
 		};
 
-		Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = CompileShader(L"Object3d.VS.hlsl", L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
-		Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(L"Object3d.PS.hlsl", L"ps_6_0", dxcUtils, dxcCompiler, includeHandler);
+		Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = CompileShader(L"Particle.VS.hlsl", L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
+		Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(L"Particle.PS.hlsl", L"ps_6_0", dxcUtils, dxcCompiler, includeHandler);
 
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc{};
 		psoDesc.pRootSignature = rootSignature.Get(); psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
@@ -360,7 +392,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		psoDesc.SampleDesc.Count = 1;
 		psoDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
 
-		// 各種ブレンドモード用
+		// 各種ブレンドモード用 PSO
 		Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineStates[kCountOfBlendMode];
 
 		for (int i = 0; i < kCountOfBlendMode; ++i) {
@@ -410,8 +442,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		ModelData planeModelData = LoadObjFile("resources", "plane.obj");
 		ModelData sphereModelData = CreateSphereModel(32);
 		ModelData fenceModelData = LoadObjFile("resources", "fence.obj");
+		ModelData quadModelData = CreateQuadModel();
 
-		// Planeバッファ
+		// Plane 頂点バッファ
 		D3D12_RESOURCE_DESC vertexResourceDescPlane{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, sizeof(Vertex) * planeModelData.vertices.size(), 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
 		Microsoft::WRL::ComPtr<ID3D12Resource> vertexResourcePlane = nullptr;
 		device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDescPlane, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexResourcePlane));
@@ -420,7 +453,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		vertexResourcePlane->Unmap(0, nullptr);
 		D3D12_VERTEX_BUFFER_VIEW vertexBufferViewPlane{ vertexResourcePlane->GetGPUVirtualAddress(), static_cast<UINT>(sizeof(Vertex) * planeModelData.vertices.size()), sizeof(Vertex) };
 
-		// Sphereバッファ
+		// Sphere 頂点バッファ
 		D3D12_RESOURCE_DESC vertexResourceDescSphere{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, sizeof(Vertex) * sphereModelData.vertices.size(), 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
 		Microsoft::WRL::ComPtr<ID3D12Resource> vertexResourceSphere = nullptr;
 		device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDescSphere, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexResourceSphere));
@@ -429,7 +462,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		vertexResourceSphere->Unmap(0, nullptr);
 		D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSphere{ vertexResourceSphere->GetGPUVirtualAddress(), static_cast<UINT>(sizeof(Vertex) * sphereModelData.vertices.size()), sizeof(Vertex) };
 
-		// Fenceバッファの作成
+		// Fence 頂点バッファ
 		D3D12_RESOURCE_DESC vertexResourceDescFence{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, sizeof(Vertex) * fenceModelData.vertices.size(), 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
 		Microsoft::WRL::ComPtr<ID3D12Resource> vertexResourceFence = nullptr;
 		device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDescFence, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexResourceFence));
@@ -437,6 +470,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		std::memcpy(vertexDataFence, fenceModelData.vertices.data(), sizeof(Vertex) * fenceModelData.vertices.size());
 		vertexResourceFence->Unmap(0, nullptr);
 		D3D12_VERTEX_BUFFER_VIEW vertexBufferViewFence{ vertexResourceFence->GetGPUVirtualAddress(), static_cast<UINT>(sizeof(Vertex) * fenceModelData.vertices.size()), sizeof(Vertex) };
+
+		// Quad 頂点バッファ
+		D3D12_RESOURCE_DESC vertexResourceDescQuad{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, sizeof(Vertex) * quadModelData.vertices.size(), 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
+		Microsoft::WRL::ComPtr<ID3D12Resource> vertexResourceQuad = nullptr;
+		device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDescQuad, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&vertexResourceQuad));
+		Vertex* vertexDataQuad = nullptr; vertexResourceQuad->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataQuad));
+		std::memcpy(vertexDataQuad, quadModelData.vertices.data(), sizeof(Vertex) * quadModelData.vertices.size());
+		vertexResourceQuad->Unmap(0, nullptr);
+		D3D12_VERTEX_BUFFER_VIEW vertexBufferViewQuad{ vertexResourceQuad->GetGPUVirtualAddress(), static_cast<UINT>(sizeof(Vertex) * quadModelData.vertices.size()), sizeof(Vertex) };
 
 		// Sprite Vertex Buffer
 		D3D12_RESOURCE_DESC vertexResourceDescSprite{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, sizeof(Vertex) * 4, 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
@@ -457,13 +499,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		indexDataSprite[0] = 0; indexDataSprite[1] = 1; indexDataSprite[2] = 2; indexDataSprite[3] = 1; indexDataSprite[4] = 3; indexDataSprite[5] = 2;
 		indexResourceSprite->Unmap(0, nullptr);
 
+		// Material リソース
 		D3D12_RESOURCE_DESC materialResourceDesc{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, (sizeof(Material) + 255) & ~255, 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
-
 		Microsoft::WRL::ComPtr<ID3D12Resource> materialResource = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &materialResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&materialResource));
 		Material* materialData = nullptr; materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
-		materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f }; materialData->enableLighting = 1; materialData->lightingType = 2; // デフォルト: Half Lambert
-		materialData->enableAlphaDiscard = 0; // デフォルトはOFF
-		materialData->discardThreshold = 0.5f; // デフォルト閾値 0.5
+		materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f }; materialData->enableLighting = 1; materialData->lightingType = 2;
+		materialData->enableAlphaDiscard = 0; materialData->discardThreshold = 0.5f;
 		materialData->uvTransform = Matrix4x4::MakeIdentity4x4();
 
 		Microsoft::WRL::ComPtr<ID3D12Resource> materialResourceSprite = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &materialResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&materialResourceSprite));
@@ -472,16 +513,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		materialDataSprite->enableAlphaDiscard = 0; materialDataSprite->discardThreshold = 0.0f;
 		materialDataSprite->uvTransform = Matrix4x4::MakeIdentity4x4();
 
-		D3D12_RESOURCE_DESC wvpResourceDesc{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, (sizeof(TransformationMatrix) + 255) & ~255, 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
-		Microsoft::WRL::ComPtr<ID3D12Resource> wvpResource = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &wvpResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&wvpResource));
-		TransformationMatrix* wvpData = nullptr; wvpResource->Map(0, nullptr, reinterpret_cast<void**>(&wvpData));
-		wvpData->wvp = Matrix4x4::MakeIdentity4x4(); wvpData->world = Matrix4x4::MakeIdentity4x4();
+		// ★ インスタンシング描画用の StructuredBuffer リソースの作成
+		const uint32_t kMaxInstanceCount = 100;
+		D3D12_RESOURCE_DESC instancingResourceDesc{ D3D12_RESOURCE_DIMENSION_BUFFER, 0, sizeof(ParticleForGPU) * kMaxInstanceCount, 1, 1, 1, DXGI_FORMAT_UNKNOWN, {1, 0}, D3D12_TEXTURE_LAYOUT_ROW_MAJOR, D3D12_RESOURCE_FLAG_NONE };
+		Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource = nullptr;
+		device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &instancingResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&instancingResource));
+		ParticleForGPU* instancingData = nullptr;
+		instancingResource->Map(0, nullptr, reinterpret_cast<void**>(&instancingData));
 
 		Transform transformModel;
-
-		Microsoft::WRL::ComPtr<ID3D12Resource> transformationMatrixResourceSprite = nullptr; device->CreateCommittedResource(&uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &wvpResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&transformationMatrixResourceSprite));
-		TransformationMatrix* transformationMatrixDataSprite = nullptr; transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
-		transformationMatrixDataSprite->wvp = Matrix4x4::MakeIdentity4x4(); transformationMatrixDataSprite->world = Matrix4x4::MakeIdentity4x4();
 		Transform transformSprite;
 		Transform uvTransformSprite;
 
@@ -500,26 +540,44 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		Microsoft::WRL::ComPtr<ID3D12Resource> textureResource2 = nullptr; device->CreateCommittedResource(&textureHeapProps, D3D12_HEAP_FLAG_NONE, &textureDesc2, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&textureResource2));
 		textureResource2->WriteToSubresource(0, nullptr, textureData2.data(), (UINT)(textureDesc2.Width * 4), (UINT)textureData2.size());
 
-		// fence.png テクスチャの読み込み
 		std::vector<uint8_t> textureData3; D3D12_RESOURCE_DESC textureDesc3{}; LoadTextureFile(L"Resources/fence.png", textureData3, textureDesc3);
 		Microsoft::WRL::ComPtr<ID3D12Resource> textureResource3 = nullptr; device->CreateCommittedResource(&textureHeapProps, D3D12_HEAP_FLAG_NONE, &textureDesc3, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&textureResource3));
 		textureResource3->WriteToSubresource(0, nullptr, textureData3.data(), (UINT)(textureDesc3.Width * 4), (UINT)textureData3.size());
 
+		// SRV 作成 (Descriptor Heap の割り当て)
+		// Index 0: ImGui (内部使用)
+		// Index 1: uvChecker
 		D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU1 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
 		D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU1 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
 		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc1{ textureDesc.Format, D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING }; srvDesc1.Texture2D.MipLevels = 1;
 		device->CreateShaderResourceView(textureResource.Get(), &srvDesc1, textureSrvHandleCPU1);
 
+		// Index 2: monsterBall
 		D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU2 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 2);
 		D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU2 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 2);
 		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2{ textureDesc2.Format, D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING }; srvDesc2.Texture2D.MipLevels = 1;
 		device->CreateShaderResourceView(textureResource2.Get(), &srvDesc2, textureSrvHandleCPU2);
 
-		// fence用SRV(Index3)
+		// Index 3: fence
 		D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU3 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
 		D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU3 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
 		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc3{ textureDesc3.Format, D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING }; srvDesc3.Texture2D.MipLevels = 1;
 		device->CreateShaderResourceView(textureResource3.Get(), &srvDesc3, textureSrvHandleCPU3);
+
+		// Index 4: ★ StructuredBuffer 用 SRV の作成（資料の手順に基づく）
+		D3D12_CPU_DESCRIPTOR_HANDLE instancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 4);
+		D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 4);
+
+		D3D12_SHADER_RESOURCE_VIEW_DESC instancingSrvDesc{};
+		instancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+		instancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+		instancingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		instancingSrvDesc.Buffer.FirstElement = 0;
+		instancingSrvDesc.Buffer.NumElements = kMaxInstanceCount;
+		instancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
+		instancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+
+		device->CreateShaderResourceView(instancingResource.Get(), &instancingSrvDesc, instancingSrvHandleCPU);
 
 		D3D12_VIEWPORT viewport{ 0.0f, 0.0f, (float)kClientWidth, (float)kClientHeight, 0.0f, 1.0f };
 		D3D12_RECT scissorRect{ 0, 0, kClientWidth, kClientHeight };
@@ -534,13 +592,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		float pi_f = 3.1415926535f;
 		bool drawSprite = true;
 
-		// 表示モデル切り替え (0: Plane, 1: Sphere, 2: Fence)
-		int currentModelType = 2; // 初期値を Fence に設定
-		// テクスチャ選択 (0: uvChecker, 1: monsterBall, 2: fence)
-		int currentTextureType = 2; // 初期値を fence.png に設定
-
-		// 現在選択されているブレンドモード
-		int currentBlendMode = kBlendModeNone; // 2値抜き有効時は None でOK
+		int currentModelType = 3;   // デフォルト: Particle Quad
+		int currentTextureType = 0; // デフォルト: uvChecker
+		int instanceCount = 10;     // インスタンス数
+		int currentBlendMode = kBlendModeNone;
 
 		MSG msg{};
 		while (msg.message != WM_QUIT) {
@@ -557,23 +612,22 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 				ImGui_ImplDX12_NewFrame(); ImGui_ImplWin32_NewFrame(); ImGui::NewFrame();
 				ImGui::Begin("Settings");
 
-				// ブレンドモード切替用 UI
 				const char* blendItems[] = { "kBlendModeNone", "kBlendModeNormal", "kBlendModeAdd", "kBlendModeSubtract", "kBlendModeMultiply", "kBlendModeScreen" };
 				ImGui::Combo("Blend Mode", &currentBlendMode, blendItems, IM_ARRAYSIZE(blendItems));
 
-				// モデル選択 (Fenceを追加)
-				const char* modelNames[] = { "Plane", "Sphere", "Fence" };
+				const char* modelNames[] = { "Plane", "Sphere", "Fence", "Particle Quad" };
 				if (ImGui::Combo("Model Select", &currentModelType, modelNames, IM_ARRAYSIZE(modelNames))) {
-					// モデル選択時にテクスチャを自動連動
 					if (currentModelType == 2) currentTextureType = 2; // Fence
-					else currentTextureType = 0;                       // Plane / Sphere
+					else currentTextureType = 0;                       // Plane / Sphere / Quad
 				}
 
-				// テクスチャ手動選択
+				if (ImGui::CollapsingHeader("Instancing Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+					ImGui::SliderInt("Instance Count", &instanceCount, 1, static_cast<int>(kMaxInstanceCount));
+				}
+
 				const char* textureNames[] = { "uvChecker", "monsterBall", "fence" };
 				ImGui::Combo("Texture Select", &currentTextureType, textureNames, IM_ARRAYSIZE(textureNames));
 
-				// 【追加】2値抜き (Alpha Discard) 設定
 				if (ImGui::CollapsingHeader("Alpha Test / Discard", ImGuiTreeNodeFlags_DefaultOpen)) {
 					bool enableDiscard = (materialData->enableAlphaDiscard != 0);
 					if (ImGui::Checkbox("Enable Alpha Discard (discard命令)", &enableDiscard)) {
@@ -592,7 +646,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 				if (ImGui::CollapsingHeader("Material", ImGuiTreeNodeFlags_DefaultOpen)) {
 					ImGui::ColorEdit4("Color", &materialData->color.x);
 
-					// ライティングモード選択
 					const char* lightingItems[] = { "None", "Lambert", "Half Lambert" };
 					int currentLighting = materialData->lightingType;
 					if (ImGui::Combo("Lighting Mode", &currentLighting, lightingItems, IM_ARRAYSIZE(lightingItems))) {
@@ -621,19 +674,31 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 				ImGui::End(); ImGui::Render();
 #endif
 
+				// UV変換行列の更新
 				Matrix4x4 materialTransformMatrix = MakeUVTransformMatrix(uvTransformSprite.scale, uvTransformSprite.rotate.z, uvTransformSprite.translate);
 				materialDataSprite->uvTransform = materialTransformMatrix;
 
+				// カメラ行列計算
 				Matrix4x4 viewMatrix = debugCamera.GetMatView();
-				Matrix4x4 worldMatrixModel = Matrix4x4::MakeAffineMatrix(transformModel.scale, transformModel.rotate, transformModel.translate);
 				Matrix4x4 projectionMatrixModel = Matrix4x4::MakePerspectiveFovMatrix(0.45f, (float)kClientWidth / kClientHeight, 0.1f, 100.0f);
-				wvpData->wvp = Matrix4x4::Multiply(Matrix4x4::Multiply(worldMatrixModel, viewMatrix), projectionMatrixModel);
-				wvpData->world = worldMatrixModel;
 
-				Matrix4x4 worldMatrixSprite = Matrix4x4::MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
-				Matrix4x4 projectionMatrixSprite = Matrix4x4::MakeOrthographicMatrix(0.0f, 0.0f, (float)kClientWidth, (float)kClientHeight, 0.0f, 100.0f);
-				transformationMatrixDataSprite->wvp = Matrix4x4::Multiply(worldMatrixSprite, projectionMatrixSprite);
-				transformationMatrixDataSprite->world = worldMatrixSprite;
+				// ★ インインスタンスデータ更新処理（位置をグリッド状に並べて個別の位置を提示）
+				for (int i = 0; i < instanceCount; ++i) {
+					Transform instanceTransform = transformModel;
+
+					// インスタンスごとにオフセットを加えて並べる (10列のグリッド配置)
+					float offsetX = (i % 5 - 2.0f) * 2.5f;
+					float offsetY = (i / 5 - 2.0f) * 2.5f;
+					instanceTransform.translate.x += offsetX;
+					instanceTransform.translate.y += offsetY;
+
+					Matrix4x4 worldMatrix = Matrix4x4::MakeAffineMatrix(instanceTransform.scale, instanceTransform.rotate, instanceTransform.translate);
+					Matrix4x4 wvpMatrix = Matrix4x4::Multiply(Matrix4x4::Multiply(worldMatrix, viewMatrix), projectionMatrixModel);
+
+					instancingData[i].wvp = wvpMatrix;
+					instancingData[i].world = worldMatrix;
+					instancingData[i].color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
+				}
 
 				commandAllocator->Reset();
 				commandList->Reset(commandAllocator.Get(), nullptr);
@@ -660,42 +725,49 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 				commandList->RSSetScissorRects(1, &scissorRect);
 				commandList->SetGraphicsRootSignature(rootSignature.Get());
 
-				// 選択されているブレンドモードのPSOを適用
+				// 選択されているブレンドモードの PSO 適用
 				commandList->SetPipelineState(pipelineStates[currentBlendMode].Get());
-
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-				commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
-
-				// 1. 3Dモデル描画
-				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-				commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
+				// Root Parameters へのバインド設定
+				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());          // RootParam[0]: Material CBV (b0)
+				commandList->SetGraphicsRootConstantBufferView(2, directionalLightResource->GetGPUVirtualAddress());  // RootParam[2]: Light CBV (b1)
+				commandList->SetGraphicsRootDescriptorTable(3, instancingSrvHandleGPU);                               // RootParam[3]: Instancing SRV (t1)
 
 				// テクスチャのバインド切り替え
 				D3D12_GPU_DESCRIPTOR_HANDLE selectedSrvGPU = textureSrvHandleGPU1;
 				if (currentTextureType == 1) selectedSrvGPU = textureSrvHandleGPU2;
 				else if (currentTextureType == 2) selectedSrvGPU = textureSrvHandleGPU3;
-				commandList->SetGraphicsRootDescriptorTable(2, selectedSrvGPU);
+				commandList->SetGraphicsRootDescriptorTable(1, selectedSrvGPU);                                      // RootParam[1]: Texture SRV (t0)
 
-				// モデル描画
+				// 1. 3Dモデル描画 (DrawInstanced 呼び出し)
 				if (currentModelType == 0) {
 					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewPlane);
-					commandList->DrawInstanced(static_cast<UINT>(planeModelData.vertices.size()), 1, 0, 0);
+					commandList->DrawInstanced(static_cast<UINT>(planeModelData.vertices.size()), instanceCount, 0, 0);
 				} else if (currentModelType == 1) {
 					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSphere);
-					commandList->DrawInstanced(static_cast<UINT>(sphereModelData.vertices.size()), 1, 0, 0);
+					commandList->DrawInstanced(static_cast<UINT>(sphereModelData.vertices.size()), instanceCount, 0, 0);
 				} else if (currentModelType == 2) {
 					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewFence);
-					commandList->DrawInstanced(static_cast<UINT>(fenceModelData.vertices.size()), 1, 0, 0);
+					commandList->DrawInstanced(static_cast<UINT>(fenceModelData.vertices.size()), instanceCount, 0, 0);
+				} else if (currentModelType == 3) { // Particle Quad
+					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewQuad);
+					commandList->DrawInstanced(static_cast<UINT>(quadModelData.vertices.size()), instanceCount, 0, 0);
 				}
 
 				// 2. 2Dスプライト描画
 				if (drawSprite) {
+					// スプライト用の WVP 行列を StructuredBuffer の先頭(Index 0)に設定して描画
+					Matrix4x4 worldMatrixSprite = Matrix4x4::MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
+					Matrix4x4 projectionMatrixSprite = Matrix4x4::MakeOrthographicMatrix(0.0f, 0.0f, (float)kClientWidth, (float)kClientHeight, 0.0f, 100.0f);
+					instancingData[0].wvp = Matrix4x4::Multiply(worldMatrixSprite, projectionMatrixSprite);
+					instancingData[0].world = worldMatrixSprite;
+					instancingData[0].color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
+
 					commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
+					commandList->SetGraphicsRootDescriptorTable(1, textureSrvHandleGPU1);
 					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
 					commandList->IASetIndexBuffer(&indexBufferViewSprite);
-					commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
-					commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU1);
 					commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 				}
 
@@ -728,8 +800,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		if (directInput) directInput->Release();
 		xAudio2.Reset(); SoundUnload(&soundData1);
 
+		instancingResource->Unmap(0, nullptr);
 		directionalLightResource->Unmap(0, nullptr); materialResourceSprite->Unmap(0, nullptr);
-		transformationMatrixResourceSprite->Unmap(0, nullptr); wvpResource->Unmap(0, nullptr); materialResource->Unmap(0, nullptr);
+		materialResource->Unmap(0, nullptr);
 		CloseHandle(fenceEvent);
 	}
 
