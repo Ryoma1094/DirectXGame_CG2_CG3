@@ -13,11 +13,6 @@
 #include <iterator>
 #include <wrl.h> 
 
-#define DIRECTINPUT_VERSION 0x0800
-#include <dinput.h>
-#pragma comment(lib, "dinput8.lib")
-#pragma comment(lib, "dxguid.lib")
-
 #include <xaudio2.h>
 #pragma comment(lib, "xaudio2.lib")
 
@@ -28,6 +23,7 @@
 #include "Vector3.h"
 #include "Matrix4x4.h"
 #include "DebugCamera.h"
+#include "Input.h" // Inputクラスのヘッダをインクルード
 
 #pragma comment(lib,"d3d12.lib")
 #pragma comment(lib,"dxgi.lib")
@@ -40,14 +36,6 @@
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-// キーバッファ
-BYTE key[256] = {};
-BYTE keyPre[256] = {};
-
-bool IsKeyPressed(uint8_t keyCode) { return (key[keyCode] & 0x80) != 0; }
-bool IsKeyReleased(uint8_t keyCode) { return (key[keyCode] & 0x80) == 0; }
-bool IsKeyTriggered(uint8_t keyCode) { return ((key[keyCode] & 0x80) != 0) && ((keyPre[keyCode] & 0x80) == 0); }
 
 struct ChunkHeader { char id[4]; int32_t size; };
 struct RiffHeader { ChunkHeader chunk; char type[4]; };
@@ -301,10 +289,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		Microsoft::WRL::ComPtr<ID3D12Fence> fence = nullptr; uint64_t fenceValue = 0; device->CreateFence(fenceValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
 		HANDLE fenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 
-		// DirectInput
-		IDirectInput8* directInput = nullptr; DirectInput8Create(hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&directInput, nullptr);
-		IDirectInputDevice8* keyboard = nullptr; directInput->CreateDevice(GUID_SysKeyboard, &keyboard, NULL);
-		keyboard->SetDataFormat(&c_dfDIKeyboard); keyboard->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
+		// --- 入力の初期化 ---
+		Input* input = nullptr;
+		input = new Input();
+		input->Initialize(hInstance, hwnd);
 
 		// XAudio2
 		Microsoft::WRL::ComPtr<IXAudio2> xAudio2; IXAudio2MasteringVoice* masterVoice = nullptr;
@@ -455,13 +443,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 			if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
 				TranslateMessage(&msg); DispatchMessage(&msg);
 			} else {
-				std::memcpy(keyPre, key, sizeof(key));
-				keyboard->Acquire(); keyboard->GetDeviceState(sizeof(key), key);
-				debugCamera.Update(key);
+				// --- 入力の更新 ---
+				input->Update();
+
+				// DebugCameraの更新（キー情報を渡す）
+				debugCamera.Update(input->GetKeyBuffer());
 
 				if (isAutoRotate) { transformModel.rotate.y += 0.01f; if (transformModel.rotate.y > pi_f * 2.0f) transformModel.rotate.y -= pi_f * 2.0f; }
-
-				assert(false && "assertのテスト");
 
 #ifdef USE_IMGUI
 				ImGui_ImplDX12_NewFrame(); ImGui_ImplWin32_NewFrame(); ImGui::NewFrame();
@@ -602,8 +590,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		ImGui_ImplDX12_Shutdown(); ImGui_ImplWin32_Shutdown(); ImGui::DestroyContext();
 #endif
 
-		if (keyboard) { keyboard->Unacquire(); keyboard->Release(); }
-		if (directInput) directInput->Release();
+		// --- 解放処理 ---
+		delete input;
+		input = nullptr;
+
 		xAudio2.Reset(); SoundUnload(&soundData1);
 
 		directionalLightResource->Unmap(0, nullptr); materialResourceSprite->Unmap(0, nullptr);
