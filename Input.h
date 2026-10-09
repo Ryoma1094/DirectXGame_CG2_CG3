@@ -20,12 +20,12 @@ public:
 	void Update();
 
 	// キー判定関数
-	bool PushKey(uint8_t keyCode) const;      // 押されているか
-	bool TriggerKey(uint8_t keyCode) const;   // 押された瞬間か
+	bool PushKey(BYTE keyNumber);      // 押されているか
+	bool TriggerKey(BYTE keyNumber);   // 押された瞬間か
 	bool ReleaseKey(uint8_t keyCode) const;   // 離されているか
 
 	// キーバッファのポインタ取得
-	const BYTE* GetKeyBuffer() const { return key_; }
+	const BYTE* GetKeyBuffer() const { return key; }
 
 private:
 	// DirectInputのポインタ
@@ -35,7 +35,9 @@ private:
 	// キーボードのデバイス
 	ComPtr<IDirectInputDevice8> keyboard;
 
-	// キーバッファ
-	BYTE key_[256] = {};
-	BYTE keyPre_[256] = {};
+	// 全キーの状態を取得する
+	BYTE key[256] = {};
+
+	// 前回の全キーの状態
+	BYTE keyPre[256] = {};
 };

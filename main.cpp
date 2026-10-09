@@ -22,6 +22,7 @@
 
 #include "Vector3.h"
 #include "Matrix4x4.h"
+
 #include "DebugCamera.h"
 #include "Input.h" // Inputクラスのヘッダをインクルード
 
@@ -30,12 +31,11 @@
 #pragma comment(lib,"Windowscodecs.lib")
 
 #ifndef USE_IMGUI
-#define USE_IMGUI
-#endif
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+#endif
 
 struct ChunkHeader { char id[4]; int32_t size; };
 struct RiffHeader { ChunkHeader chunk; char type[4]; };

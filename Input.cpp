@@ -29,24 +29,29 @@ void Input::Initialize(HINSTANCE hInstance, HWND hwnd)
 void Input::Update()
 {
 	// 前回のキー入力を保存
-	std::memcpy(keyPre_, key_, sizeof(key_));
+	std::memcpy(keyPre, key, sizeof(key));
 
 	// キーボード情報の取得開始
 	keyboard_->Acquire();
 
-	// 全キーの状態を取得する
-	BYTE key[256] = {};
-	keyboard_->GetDeviceState(sizeof(key_), key_);
+	
+	keyboard_->GetDeviceState(sizeof(key), key);
 }
 
-bool Input::PushKey(uint8_t keyCode) const
+bool Input::PushKey(BYTE keyNumber) 
 {
-	return (key_[keyCode] & 0x80) != 0;
+	// 指定キーを押していればtrueを返す
+	if (key[keyNumber]) {
+		return true;
+	}
+
+	// そうでなければfalseを返す
+	return false;
 }
 
-bool Input::TriggerKey(uint8_t keyCode) const
+bool Input::TriggerKey(BYTE keyNumber)
 {
-	return ((key_[keyCode] & 0x80) != 0) && ((keyPre_[keyCode] & 0x80) == 0);
+	return false;
 }
 
 bool Input::ReleaseKey(uint8_t keyCode) const
