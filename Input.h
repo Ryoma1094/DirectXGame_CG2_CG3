@@ -13,7 +13,7 @@ public:
 	template <class T> using ComPtr = Microsoft::WRL::ComPtr<T>;
 
 public:
-	// 初期化（仮引数を指定）
+	// 初期化
 	void Initialize(HINSTANCE hInstance, HWND hwnd);
 
 	// 更新

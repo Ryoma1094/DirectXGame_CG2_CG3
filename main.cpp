@@ -24,7 +24,8 @@
 #include "Matrix4x4.h"
 
 #include "DebugCamera.h"
-#include "Input.h" // Inputクラスのヘッダをインクルード
+#include "Input.h"
+#include "WinApp.h"
 
 #pragma comment(lib,"d3d12.lib")
 #pragma comment(lib,"dxgi.lib")
@@ -34,7 +35,6 @@
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 #endif
 
 struct ChunkHeader { char id[4]; int32_t size; };
@@ -85,7 +85,6 @@ std::wstring ConvertString(const std::string& str) {
 	return wstr;
 }
 
-// 補助用構造体（Vector3 は Vector3.h を使用）
 struct Vector2 { float x, y; };
 struct Vector4 { float x, y, z, w; };
 struct Vertex { Vector4 position; Vector2 texcoord; Vector3 normal; };
@@ -149,14 +148,6 @@ ModelData CreateSphereModel(uint32_t kSubdivision = 32) {
 		}
 	}
 	return modelData;
-}
-
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-#ifdef USE_IMGUI
-	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) return true;
-#endif
-	if (msg == WM_DESTROY) { PostQuitMessage(0); return 0; }
-	return DefWindowProc(hwnd, msg, wparam, lparam);
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(ID3D12DescriptorHeap* descriptorHeap, uint32_t descriptorSize, uint32_t index) {
@@ -241,12 +232,14 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 	CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 	D3DResourceLeakChecker leakCheck;
 
-	WNDCLASS wc{ 0, WindowProc, 0, 0, GetModuleHandle(nullptr), nullptr, LoadCursor(nullptr, IDC_ARROW), nullptr, nullptr, L"CG2WindowClass" };
-	RegisterClass(&wc);
-	const int32_t kClientWidth = 1280; const int32_t kClientHeight = 720;
-	RECT wrc = { 0, 0, kClientWidth, kClientHeight }; AdjustWindowRect(&wrc, WS_OVERLAPPEDWINDOW, false);
-	HWND hwnd = CreateWindow(wc.lpszClassName, L"CG2_evaluation_Work3", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, wrc.right - wrc.left, wrc.bottom - wrc.top, nullptr, nullptr, wc.hInstance, nullptr);
-	ShowWindow(hwnd, SW_SHOW);
+	// WinAppクラスを使った初期化
+	WinApp* winApp = new WinApp();
+	winApp->Initialize();
+
+	// DirectX等で必要な変数を取得
+	HWND hwnd = winApp->GetHwnd();
+	const int32_t kClientWidth = WinApp::kClientWidth;
+	const int32_t kClientHeight = WinApp::kClientHeight;
 
 	{
 		Microsoft::WRL::ComPtr<IDXGIFactory7> dxgiFactory = nullptr; CreateDXGIFactory(IID_PPV_ARGS(&dxgiFactory));
@@ -542,7 +535,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 
 				commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
 
-				// 1. 3Dモデル描画
+				// 3Dモデル描画
 				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 				commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 				commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU1);
@@ -555,7 +548,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 					commandList->DrawInstanced(static_cast<UINT>(sphereModelData.vertices.size()), 1, 0, 0);
 				}
 
-				// 2. 2Dスプライト描画
+				// 2Dスプライト描画
 				if (drawSprite) {
 					commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
 					commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
@@ -601,7 +594,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		CloseHandle(fenceEvent);
 	}
 
-	UnregisterClass(wc.lpszClassName, wc.hInstance);
+	// WinAppの終了処理
+	winApp->Finalize();
+	delete winApp;
+
 	CoUninitialize();
 	return 0;
 }
