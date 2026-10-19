@@ -51,10 +51,16 @@ bool Input::PushKey(BYTE keyNumber)
 
 bool Input::TriggerKey(BYTE keyNumber)
 {
+	// 今回は押していて、かつ前回は押していなければtrueを返す
+	if (key[keyNumber] && !keyPre[keyNumber]) {
+		return true;
+	}
+
+	// そうでなければfalseを返す
 	return false;
 }
 
-bool Input::ReleaseKey(uint8_t keyCode) const
+bool Input::ReleaseKey(BYTE keyNumber) const
 {
-	return (key_[keyCode] & 0x80) == 0;
+	return (key[keyNumber] & 0x80) == 0;
 }
