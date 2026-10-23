@@ -21,7 +21,7 @@ public:
 	void Finalize();
 
 	// ウィンドウハンドル取得
-	HWND GetHwnd() const { return hwnd_; }
+	HWND GetHwnd() const { return hwnd; }
 	// HINSTANCE取得
 	HINSTANCE GetHInstance() const { return wc_.hInstance; }
 
@@ -29,7 +29,7 @@ public:
 
 private:
 	// ウィンドウハンドル
-	HWND hwnd_ = nullptr;
+	HWND hwnd = nullptr;
 	// ウィンドウクラス
 	WNDCLASS wc_{};
 };
