@@ -15,8 +15,10 @@ public:
 
 	// 初期化
 	void Initialize();
-	// 更新
-	void Update();
+
+	// メッセージ処理
+	bool ProcessMessage();
+
 	// 終了処理
 	void Finalize();
 
@@ -24,8 +26,6 @@ public:
 	HWND GetHwnd() const { return hwnd; }
 	// HINSTANCE取得
 	HINSTANCE GetHInstance() const { return wc_.hInstance; }
-
-	
 
 private:
 	// ウィンドウハンドル
