@@ -43,6 +43,10 @@ void WinApp::Update()
 
 void WinApp::Finalize()
 {
+	// WindowsAPIの終了処理
+	CloseWindow(hwnd);
+	CoUninitialize();
+
 	// ウィンドウクラスの登録解除処理
 	UnregisterClass(wc_.lpszClassName, wc_.hInstance);
 }

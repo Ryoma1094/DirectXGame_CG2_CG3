@@ -1,10 +1,11 @@
 #pragma once
 
 #include <Windows.h>
-#define DIRECTINPUT_VERSION 0x0800 // DirectInputのバージョン指定
+#define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
 #include <wrl.h>
 #include <cstdint>
+#include "WinApp.h"
 
 class Input
 {
@@ -14,7 +15,7 @@ public:
 
 public:
 	// 初期化
-	void Initialize(HINSTANCE hInstance, HWND hwnd);
+	void Initialize(WinApp* winApp);
 
 	// 更新
 	void Update();
@@ -28,12 +29,11 @@ public:
 	const BYTE* GetKeyBuffer() const { return key; }
 
 private:
+	WinApp* winApp = nullptr;
+
 	// DirectInputのポインタ
 	ComPtr<IDirectInput8> directInput_ = nullptr;
 	ComPtr<IDirectInputDevice8> keyboard_ = nullptr;
-
-	// キーボードのデバイス
-	ComPtr<IDirectInputDevice8> keyboard;
 
 	// 全キーの状態を取得する
 	BYTE key[256] = {};
