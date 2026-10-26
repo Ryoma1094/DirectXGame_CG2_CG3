@@ -236,8 +236,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 	WinApp* winApp = new WinApp();
 	winApp->Initialize();
 
-	// DirectX等で必要な変数を取得
-	HWND hwnd = winApp->GetHwnd();
+	// WinAppの定数を使用
 	const int32_t kClientWidth = WinApp::kClientWidth;
 	const int32_t kClientHeight = WinApp::kClientHeight;
 
@@ -262,7 +261,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		swapChainDesc.Width = kClientWidth; swapChainDesc.Height = kClientHeight; swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		swapChainDesc.SampleDesc.Count = 1; swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; swapChainDesc.BufferCount = 2;
 		swapChainDesc.Scaling = DXGI_SCALING_STRETCH; swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-		dxgiFactory->CreateSwapChainForHwnd(commandQueue.Get(), winApp->GetHwnd(), &swapChainDesc, nullptr, nullptr, reinterpret_cast<IDXGISwapChain1**>(swapChain.GetAddressOf()));
+		dxgiFactory->CreateSwapChainForHwnd(commandQueue.Get(),winApp->GetHwnd(),&swapChainDesc,nullptr,nullptr,reinterpret_cast<IDXGISwapChain1**>(swapChain.GetAddressOf()));
 
 		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2, false);
 		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
@@ -285,7 +284,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		// --- 入力の初期化 ---
 		Input* input = nullptr;
 		input = new Input();
-		input->Initialize(hInstance, hwnd);
+		input->Initialize(winApp->GetHInstance(), winApp->GetHwnd());
 
 		// XAudio2
 		Microsoft::WRL::ComPtr<IXAudio2> xAudio2; IXAudio2MasteringVoice* masterVoice = nullptr;

@@ -26,14 +26,14 @@ void WinApp::Initialize()
 	AdjustWindowRect(&wrc, WS_OVERLAPPEDWINDOW, false);
 
 	// ウィンドウの生成
-	hwnd_ = CreateWindow(
+	hwnd = CreateWindow(
 		wc_.lpszClassName, L"GE3",
 		WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
 		wrc.right - wrc.left, wrc.bottom - wrc.top,
 		nullptr, nullptr, wc_.hInstance, nullptr);
 
 	// ウィンドウの表示
-	ShowWindow(hwnd_, SW_SHOW);
+	ShowWindow(hwnd, SW_SHOW);
 }
 
 void WinApp::Update()
