@@ -422,7 +422,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 			transformationMatrixDataSprite->wvp = Matrix4x4::Multiply(worldMatrixSprite, projectionMatrixSprite);
 			transformationMatrixDataSprite->world = worldMatrixSprite;
 
+			// ----------------------------------------------------
 			// 描画前処理
+			// ----------------------------------------------------
 			dxCommon->PreDraw();
 			ID3D12GraphicsCommandList* commandList = dxCommon->GetCommandList();
 
@@ -459,7 +461,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 #endif
 
+			// ----------------------------------------------------
 			// 描画後処理
+			// ----------------------------------------------------
 			dxCommon->PostDraw();
 		}
 

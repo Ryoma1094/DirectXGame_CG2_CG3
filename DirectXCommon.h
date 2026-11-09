@@ -39,7 +39,7 @@ public:
 	const D3D12_CPU_DESCRIPTOR_HANDLE& GetRtvHandle(uint32_t index) const { return rtvHandles[index]; }
 	ID3D12Resource* GetSwapChainResource(uint32_t index) const { return swapChainResources[index].Get(); }
 	ID3D12Fence* GetFence() const { return fence.Get(); }
-	uint64_t GetFenceValue() const { return fenceValue; }
+	UINT64 GetFenceVal() const { return fenceVal; }
 	HANDLE GetFenceEvent() const { return fenceEvent; }
 
 	// コマンド実行・画面同期制御
@@ -100,7 +100,7 @@ private:
 
 	// フェンス
 	Microsoft::WRL::ComPtr<ID3D12Fence> fence;
-	uint64_t fenceValue = 0;
+	UINT64 fenceVal = 0;
 	HANDLE fenceEvent = nullptr;
 
 	// ビューポート・シザー

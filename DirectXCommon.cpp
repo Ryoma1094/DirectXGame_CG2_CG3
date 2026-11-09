@@ -144,7 +144,7 @@ void DirectXCommon::InitializeDepthStencilView() {
 }
 
 void DirectXCommon::InitializeFence() {
-	HRESULT hr = device->CreateFence(fenceValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+	HRESULT hr = device->CreateFence(fenceVal, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
 	assert(SUCCEEDED(hr));
 	fenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 	assert(fenceEvent != nullptr);
@@ -215,6 +215,7 @@ D3D12_GPU_DESCRIPTOR_HANDLE DirectXCommon::GetSRVGPUDescriptorHandle(uint32_t in
 	return GetGPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, index);
 }
 
+// 描画前処理
 void DirectXCommon::PreDraw() {
 	UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
 
@@ -240,7 +241,9 @@ void DirectXCommon::PreDraw() {
 	commandList->RSSetScissorRects(1, &scissorRect);
 }
 
+// 描画後処理
 void DirectXCommon::PostDraw() {
+	// バックバッファの番号取得
 	UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
 
 	D3D12_RESOURCE_BARRIER barrier{};
@@ -256,10 +259,12 @@ void DirectXCommon::PostDraw() {
 	commandQueue->ExecuteCommandLists(1, commandLists);
 
 	swapChain->Present(1, 0);
-	fenceValue++;
-	commandQueue->Signal(fence.Get(), fenceValue);
-	if (fence->GetCompletedValue() < fenceValue) {
-		fence->SetEventOnCompletion(fenceValue, fenceEvent);
+
+	// メンバ変数fenceValを使用
+	fenceVal++;
+	commandQueue->Signal(fence.Get(), fenceVal);
+	if (fence->GetCompletedValue() < fenceVal) {
+		fence->SetEventOnCompletion(fenceVal, fenceEvent);
 		WaitForSingleObject(fenceEvent, INFINITE);
 	}
 
