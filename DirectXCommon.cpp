@@ -1,4 +1,6 @@
 #include "DirectXCommon.h"
+#include <d3d12sdklayers.h>
+#include "StringUtility.h"
 #include <cassert>
 
 #pragma comment(lib, "d3d12.lib")
@@ -15,12 +17,9 @@ using namespace Microsoft::WRL;
 
 void DirectXCommon::Initialize(WinApp* winApp)
 {
-	// NULL検出
 	assert(winApp);
-	// メンバ変数に記録
 	this->winApp = winApp;
 
-	// 初期化処理の順次呼び出し
 	InitializeDevice();
 	InitializeCommand();
 	CreateSwapChain();
@@ -57,9 +56,9 @@ void DirectXCommon::InitializeDevice() {
 #ifdef _DEBUG
 	ComPtr<ID3D12InfoQueue> infoQueue;
 	if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&infoQueue)))) {
-		infoQueue->SetBreakOnSeverity(D3D12_SEVERITY_CORRUPTION, true);
-		infoQueue->SetBreakOnSeverity(D3D12_SEVERITY_ERROR, true);
-		infoQueue->SetBreakOnSeverity(D3D12_SEVERITY_WARNING, true);
+		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
+		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
+		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
 	}
 #endif
 }
@@ -215,6 +214,105 @@ D3D12_GPU_DESCRIPTOR_HANDLE DirectXCommon::GetSRVGPUDescriptorHandle(uint32_t in
 	return GetGPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, index);
 }
 
+// シェーダーコンパイル関数
+ComPtr<IDxcBlob> DirectXCommon::CompileShader(const std::wstring& filePath, const wchar_t* profile) {
+	ComPtr<IDxcBlobEncoding> shaderSource = nullptr;
+	HRESULT hr = dxcUtils->LoadFile(filePath.c_str(), nullptr, &shaderSource);
+	assert(SUCCEEDED(hr));
+
+	DxcBuffer shaderSourceBuffer{ shaderSource->GetBufferPointer(), shaderSource->GetBufferSize(), DXC_CP_UTF8 };
+	LPCWSTR arguments[] = {
+		filePath.c_str(),
+		L"-E", L"main",
+		L"-T", profile,
+		L"-Zi", L"-Qembed_debug",
+		L"-Od", L"-Zpr",
+		L"-HV", L"2021"
+	};
+
+	ComPtr<IDxcResult> shaderResult = nullptr;
+	hr = dxcCompiler->Compile(&shaderSourceBuffer, arguments, _countof(arguments), includeHandler.Get(), IID_PPV_ARGS(&shaderResult));
+	assert(SUCCEEDED(hr));
+
+	ComPtr<IDxcBlob> shaderBlob = nullptr;
+	hr = shaderResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob), nullptr);
+	assert(SUCCEEDED(hr));
+
+	return shaderBlob;
+}
+
+// バッファリソース生成関数
+ComPtr<ID3D12Resource> DirectXCommon::CreateBufferResource(size_t sizeInBytes) {
+	D3D12_HEAP_PROPERTIES uploadHeapProperties{ D3D12_HEAP_TYPE_UPLOAD };
+	D3D12_RESOURCE_DESC bufferResourceDesc{
+		D3D12_RESOURCE_DIMENSION_BUFFER, 0,
+		sizeInBytes, 1, 1, 1,
+		DXGI_FORMAT_UNKNOWN, {1, 0},
+		D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+		D3D12_RESOURCE_FLAG_NONE
+	};
+
+	ComPtr<ID3D12Resource> bufferResource = nullptr;
+	HRESULT hr = device->CreateCommittedResource(
+		&uploadHeapProperties, D3D12_HEAP_FLAG_NONE,
+		&bufferResourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr, IID_PPV_ARGS(&bufferResource)
+	);
+	assert(SUCCEEDED(hr));
+	return bufferResource;
+}
+
+// テクスチャリソース生成関数
+ComPtr<ID3D12Resource> DirectXCommon::CreateTextureResource(const DirectX::TexMetadata& metadata) {
+	D3D12_RESOURCE_DESC resourceDesc{};
+	resourceDesc.Width = static_cast<UINT64>(metadata.width);
+	resourceDesc.Height = static_cast<UINT>(metadata.height);
+	resourceDesc.MipLevels = static_cast<UINT16>(metadata.mipLevels);
+	resourceDesc.Format = metadata.format;
+	resourceDesc.DepthOrArraySize = static_cast<UINT16>(metadata.arraySize);
+	resourceDesc.SampleDesc.Count = 1;
+	resourceDesc.Dimension = static_cast<D3D12_RESOURCE_DIMENSION>(metadata.dimension);
+
+	D3D12_HEAP_PROPERTIES heapProperties{ D3D12_HEAP_TYPE_CUSTOM, D3D12_CPU_PAGE_PROPERTY_WRITE_BACK, D3D12_MEMORY_POOL_L0 };
+
+	ComPtr<ID3D12Resource> resource = nullptr;
+	HRESULT hr = device->CreateCommittedResource(
+		&heapProperties, D3D12_HEAP_FLAG_NONE,
+		&resourceDesc, D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr, IID_PPV_ARGS(&resource)
+	);
+	assert(SUCCEEDED(hr));
+	return resource;
+}
+
+// テクスチャデータ転送関数
+void DirectXCommon::UploadTextureData(const ComPtr<ID3D12Resource>& texture, const DirectX::ScratchImage& mipImages) {
+	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
+	for (size_t i = 0; i < metadata.mipLevels; ++i) {
+		const DirectX::Image* img = mipImages.GetImage(i, 0, 0);
+		HRESULT hr = texture->WriteToSubresource(
+			static_cast<UINT>(i), nullptr,
+			img->pixels, static_cast<UINT>(img->rowPitch),
+			static_cast<UINT>(img->slicePitch)
+		);
+		assert(SUCCEEDED(hr));
+	}
+}
+
+// テクスチャファイル読み込み関数
+DirectX::ScratchImage DirectXCommon::LoadTexture(const std::string& filePath) {
+	DirectX::ScratchImage image{};
+	std::wstring filePathW = StringUtility::ConvertString(filePath);
+	HRESULT hr = DirectX::LoadFromWICFile(filePathW.c_str(), DirectX::WIC_FLAGS_NONE, nullptr, image);
+	assert(SUCCEEDED(hr));
+
+	DirectX::ScratchImage mipImages{};
+	hr = DirectX::GenerateMipMaps(image.GetImages(), image.GetImageCount(), image.GetMetadata(), DirectX::TEX_FILTER_DEFAULT, 0, mipImages);
+	assert(SUCCEEDED(hr));
+
+	return mipImages;
+}
+
 // 描画前処理
 void DirectXCommon::PreDraw() {
 	UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
@@ -243,7 +341,6 @@ void DirectXCommon::PreDraw() {
 
 // 描画後処理
 void DirectXCommon::PostDraw() {
-	// バックバッファの番号取得
 	UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
 
 	D3D12_RESOURCE_BARRIER barrier{};
@@ -260,7 +357,6 @@ void DirectXCommon::PostDraw() {
 
 	swapChain->Present(1, 0);
 
-	// メンバ変数fenceValを使用
 	fenceVal++;
 	commandQueue->Signal(fence.Get(), fenceVal);
 	if (fence->GetCompletedValue() < fenceVal) {
