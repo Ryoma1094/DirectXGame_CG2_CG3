@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <string>
 #include <dxcapi.h>
+#include <chrono>
 #include "WinApp.h"
 #include "externals/DirectXTex/DirectXTex.h"
 
@@ -57,7 +58,7 @@ public:
 	// テクスチャデータ転送関数
 	void UploadTextureData(const Microsoft::WRL::ComPtr<ID3D12Resource>& texture, const DirectX::ScratchImage& mipImages);
 
-	// テクスチャファイル読み込み関数 (static)
+	// テクスチャファイル読み込み関数
 	static DirectX::ScratchImage LoadTexture(const std::string& filePath);
 
 	// コマンド実行・画面同期制御
@@ -82,6 +83,10 @@ private:
 	void InitializeScissorRect();
 	void CreateDXCCompiler();
 	void InitializeImGui();
+
+	// FPS固定初期化・更新関数
+	void InitializeFixFPS();
+	void UpdateFixFPS();
 
 private:
 	WinApp* winApp = nullptr;
@@ -118,4 +123,7 @@ private:
 	Microsoft::WRL::ComPtr<IDxcUtils> dxcUtils;
 	Microsoft::WRL::ComPtr<IDxcCompiler3> dxcCompiler;
 	Microsoft::WRL::ComPtr<IDxcIncludeHandler> includeHandler;
+
+	// 記録時間（FPS固定用）
+	std::chrono::steady_clock::time_point reference_;
 };

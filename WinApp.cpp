@@ -1,4 +1,7 @@
 #include "WinApp.h"
+#include <timeapi.h>
+
+#pragma comment(lib, "winmm.lib")
 
 #ifndef USE_IMGUI
 #include "externals/imgui/imgui.h"
@@ -6,7 +9,7 @@
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 #endif
 
-// ウィンドウプロシージャの移植
+// ウィンドウプロシージャ
 LRESULT CALLBACK WinApp::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 #ifdef USE_IMGUI
 	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) return true;
@@ -17,6 +20,9 @@ LRESULT CALLBACK WinApp::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
 
 void WinApp::Initialize()
 {
+	// システムタイマーの分解能を上げる
+	timeBeginPeriod(1);
+
 	// ウィンドウクラスの設定
 	wc_ = { 0, WindowProc, 0, 0, GetModuleHandle(nullptr), nullptr, LoadCursor(nullptr, IDC_ARROW), nullptr, nullptr, L"CG2WindowClass" };
 	RegisterClass(&wc_);
@@ -36,7 +42,7 @@ void WinApp::Initialize()
 	ShowWindow(hwnd, SW_SHOW);
 }
 
-// メッセージ処理の移植
+// メッセージ処理
 bool WinApp::ProcessMessage()
 {
 	MSG msg{};
