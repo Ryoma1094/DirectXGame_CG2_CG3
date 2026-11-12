@@ -16,18 +16,27 @@
     <Filter Include="imgui">
       <UniqueIdentifier>{963d644e-982b-4173-b2a5-df84e7fdef50}</UniqueIdentifier>
     </Filter>
+    <Filter Include="ソース ファイル\engine">
+      <UniqueIdentifier>{e1512ba2-56ce-42e3-bd10-bb6d474958c4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\engine\base">
+      <UniqueIdentifier>{62dacff7-f13e-4706-a117-6ec9cdeca65a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\engine\io">
+      <UniqueIdentifier>{2655342a-4897-423a-98b1-bdea43636806}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\engine\math">
+      <UniqueIdentifier>{e7d33001-45a5-4e2d-a4c0-91ad8a2b8144}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\engine\3d">
+      <UniqueIdentifier>{3e607016-88d6-40c9-b5e5-2ded7b8cd65b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\engine\HLSL">
+      <UniqueIdentifier>{f477d140-780c-422f-9eb7-2aca135d7c8b}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
-      <Filter>ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="Matrix4x4.cpp">
-      <Filter>ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="Vector3.cpp">
-      <Filter>ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="DebugCamera.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
     <ClCompile Include="externals\imgui\imgui.cpp">
@@ -51,36 +60,43 @@
     <ClCompile Include="externals\imgui\imgui_widgets.cpp">
       <Filter>imgui</Filter>
     </ClCompile>
-    <ClCompile Include="Input.cpp">
-      <Filter>ソース ファイル</Filter>
+    <ClCompile Include="D3DResourceLeakChecker.cpp">
+      <Filter>ソース ファイル\engine\base</Filter>
     </ClCompile>
-    <ClCompile Include="WinApp.cpp">
-      <Filter>ソース ファイル</Filter>
+    <ClCompile Include="DebugCamera.cpp">
+      <Filter>ソース ファイル\engine\3d</Filter>
     </ClCompile>
     <ClCompile Include="DirectXCommon.cpp">
-      <Filter>ソース ファイル</Filter>
+      <Filter>ソース ファイル\engine\base</Filter>
+    </ClCompile>
+    <ClCompile Include="Input.cpp">
+      <Filter>ソース ファイル\engine\io</Filter>
     </ClCompile>
     <ClCompile Include="Logger.cpp">
-      <Filter>ソース ファイル</Filter>
+      <Filter>ソース ファイル\engine\base</Filter>
+    </ClCompile>
+    <ClCompile Include="Matrix4x4.cpp">
+      <Filter>ソース ファイル\engine\math</Filter>
     </ClCompile>
     <ClCompile Include="StringUtility.cpp">
-      <Filter>ソース ファイル</Filter>
+      <Filter>ソース ファイル\engine\base</Filter>
     </ClCompile>
-    <ClCompile Include="D3DResourceLeakChecker.cpp">
-      <Filter>ソース ファイル</Filter>
+    <ClCompile Include="Vector3.cpp">
+      <Filter>ソース ファイル\engine\math</Filter>
+    </ClCompile>
+    <ClCompile Include="WinApp.cpp">
+      <Filter>ソース ファイル\engine\base</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="Object3d.VS.hlsl" />
-    <FxCompile Include="Object3d.PS.hlsl" />
+    <FxCompile Include="Object3d.PS.hlsl">
+      <Filter>ソース ファイル\engine\HLSL</Filter>
+    </FxCompile>
+    <FxCompile Include="Object3d.VS.hlsl">
+      <Filter>ソース ファイル\engine\HLSL</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Matrix4x4.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="Vector3.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
     <ClInclude Include="externals\imgui\imconfig.h">
       <Filter>imgui</Filter>
     </ClInclude>
@@ -105,26 +121,32 @@
     <ClInclude Include="externals\imgui\imstb_truetype.h">
       <Filter>imgui</Filter>
     </ClInclude>
+    <ClInclude Include="D3DResourceLeakChecker.h">
+      <Filter>ソース ファイル\engine\base</Filter>
+    </ClInclude>
     <ClInclude Include="DebugCamera.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="Input.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="WinApp.h">
-      <Filter>ヘッダー ファイル</Filter>
+      <Filter>ソース ファイル\engine\3d</Filter>
     </ClInclude>
     <ClInclude Include="DirectXCommon.h">
-      <Filter>ヘッダー ファイル</Filter>
+      <Filter>ソース ファイル\engine\base</Filter>
+    </ClInclude>
+    <ClInclude Include="Input.h">
+      <Filter>ソース ファイル\engine\io</Filter>
     </ClInclude>
     <ClInclude Include="Logger.h">
-      <Filter>ヘッダー ファイル</Filter>
+      <Filter>ソース ファイル\engine\base</Filter>
+    </ClInclude>
+    <ClInclude Include="Matrix4x4.h">
+      <Filter>ソース ファイル\engine\math</Filter>
     </ClInclude>
     <ClInclude Include="StringUtility.h">
-      <Filter>ヘッダー ファイル</Filter>
+      <Filter>ソース ファイル\engine\base</Filter>
     </ClInclude>
-    <ClInclude Include="D3DResourceLeakChecker.h">
-      <Filter>ヘッダー ファイル</Filter>
+    <ClInclude Include="Vector3.h">
+      <Filter>ソース ファイル\engine\math</Filter>
+    </ClInclude>
+    <ClInclude Include="WinApp.h">
+      <Filter>ソース ファイル\engine\base</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -133,6 +155,8 @@
     </Text>
   </ItemGroup>
   <ItemGroup>
-    <None Include="Object3d.hlsli" />
+    <None Include="Object3d.hlsli">
+      <Filter>ソース ファイル\engine\HLSL</Filter>
+    </None>
   </ItemGroup>
 </Project>
