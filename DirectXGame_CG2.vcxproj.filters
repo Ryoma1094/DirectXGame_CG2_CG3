@@ -93,8 +93,10 @@
     </Text>
   </ItemGroup>
   <ItemGroup>
-    <None Include="Particle\Particle.hlsli" />
-    <None Include="Particle\Particle.PS.hlsl" />
-    <None Include="Particle\Particle.VS.hlsl" />
+    <None Include="Particle.hlsli" />
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Particle.PS.hlsl" />
+    <FxCompile Include="Particle.VS.hlsl" />
   </ItemGroup>
 </Project>
