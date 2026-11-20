@@ -34,6 +34,9 @@
     <Filter Include="ソース ファイル\engine\HLSL">
       <UniqueIdentifier>{f477d140-780c-422f-9eb7-2aca135d7c8b}</UniqueIdentifier>
     </Filter>
+    <Filter Include="ソース ファイル\engine\application">
+      <UniqueIdentifier>{35c3c183-7cf2-4ab3-b9d6-2792cfebf9d3}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
