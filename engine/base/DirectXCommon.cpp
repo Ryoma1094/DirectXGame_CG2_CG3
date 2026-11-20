@@ -268,6 +268,23 @@ ComPtr<IDxcBlob> DirectXCommon::CompileShader(const std::wstring& filePath, cons
 	hr = dxcCompiler->Compile(&shaderSourceBuffer, arguments, _countof(arguments), includeHandler.Get(), IID_PPV_ARGS(&shaderResult));
 	assert(SUCCEEDED(hr));
 
+	ComPtr<IDxcBlobUtf8> shaderError = nullptr;
+	shaderResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&shaderError), nullptr);
+	if (shaderError != nullptr && shaderError->GetStringLength() != 0) {
+		// 警告・エラーメッセージを取得
+		std::string errorMsg = shaderError->GetStringPointer();
+		// Visual Studioの「出力」ウィンドウにエラーメッセージを表示
+		OutputDebugStringA(errorMsg.c_str());
+	}
+
+	// コンパイル結果のステータスを確認
+	HRESULT compileStatus;
+	shaderResult->GetStatus(&compileStatus);
+	if (FAILED(compileStatus)) {
+		// コンパイル失敗時はプログラムを停止させる
+		assert(false && "Shader Compilation Failed! Check the Output window for details.");
+	}
+
 	ComPtr<IDxcBlob> shaderBlob = nullptr;
 	hr = shaderResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob), nullptr);
 	assert(SUCCEEDED(hr));
@@ -403,4 +420,4 @@ void DirectXCommon::PostDraw() {
 
 	commandAllocator->Reset();
 	commandList->Reset(commandAllocator.Get(), nullptr);
-}
+}	
