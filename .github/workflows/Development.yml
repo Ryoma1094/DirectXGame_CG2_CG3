@@ -7,7 +7,7 @@ on:
 
 env:
   # リポジトリのルートディレクトリを基点としたソリューションファイルのパス
-  SOLUTION_FILE_PATH: project/DirectXGame_CG2.sln
+  SOLUTION_FILE_PATH: project/DirectXGame_CG2.slnx
   # Visual Studio の構成
   CONFIGURATION: Development
 
