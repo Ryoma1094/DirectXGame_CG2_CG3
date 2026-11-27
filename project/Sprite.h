@@ -61,6 +61,26 @@ public: // getter / setter
 	const Vector2& GetSize() const { return size_; }
 	void SetSize(const Vector2& size) { this->size_ = size; }
 
+	// アンカーポイント
+	const Vector2& GetAnchorPoint() const { return anchorPoint_; }
+	void SetAnchorPoint(const Vector2& anchorPoint) { this->anchorPoint_ = anchorPoint; }
+
+	// 左右フリップ
+	bool GetIsFlipX() const { return isFlipX_; }
+	void SetIsFlipX(bool isFlipX) { this->isFlipX_ = isFlipX; }
+
+	// 上下フリップ
+	bool GetIsFlipY() const { return isFlipY_; }
+	void SetIsFlipY(bool isFlipY) { this->isFlipY_ = isFlipY; }
+
+	// テクスチャ左上座標
+	const Vector2& GetTextureLeftTop() const { return textureLeftTop_; }
+	void SetTextureLeftTop(const Vector2& textureLeftTop) { this->textureLeftTop_ = textureLeftTop; }
+
+	// テクスチャ切り出しサイズ
+	const Vector2& GetTextureSize() const { return textureSize_; }
+	void SetTextureSize(const Vector2& textureSize) { this->textureSize_ = textureSize; }
+
 private: // メンバ関数
 	// 頂点データ作成
 	void CreateVertexData();
@@ -68,6 +88,8 @@ private: // メンバ関数
 	void CreateMaterialData();
 	// 座標変換行列データ作成
 	void CreateTransformationMatrixData();
+	// テクスチャサイズをイメージに合わせる
+	void AdjustTextureSize();
 
 private: // メンバ変数
 	// スプライト共通部（借りてくるポインタなのでdeleteしない）
@@ -89,13 +111,23 @@ private: // メンバ変数
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView_{};
 	D3D12_INDEX_BUFFER_VIEW indexBufferView_{};
 
-	// SRV（テクスチャ）のGPUハンドル
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU_{};
-
 	// パラメータ（座標・回転角・表示サイズ）
 	Vector2 position_ = { 0.0f, 0.0f };
 	float rotation_ = 0.0f;
 	Vector2 size_ = { 640.0f, 360.0f };
+
+	// アンカーポイント
+	Vector2 anchorPoint_ = { 0.0f, 0.0f };
+
+	// 左右フリップ
+	bool isFlipX_ = false;
+	// 上下フリップ
+	bool isFlipY_ = false;
+
+	// テクスチャ左上座標
+	Vector2 textureLeftTop_ = { 0.0f, 0.0f };
+	// テクスチャ切り出しサイズ
+	Vector2 textureSize_ = { 100.0f, 100.0f };
 
 	// テクスチャ番号
 	uint32_t textureIndex_ = 0;
