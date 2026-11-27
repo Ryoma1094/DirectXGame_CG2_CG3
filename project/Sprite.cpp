@@ -1,8 +1,9 @@
 #include "Sprite.h"
 #include "SpriteCommon.h"
 #include "WinApp.h"
+#include "TextureManager.h"
 
-void Sprite::Initialize(SpriteCommon* spriteCommon)
+void Sprite::Initialize(SpriteCommon* spriteCommon, std::string textureFilePath)
 {
 	// 引数で受け取ってメンバ変数に記録する
 	this->spriteCommon_ = spriteCommon;
@@ -15,6 +16,9 @@ void Sprite::Initialize(SpriteCommon* spriteCommon)
 
 	// 座標変換行列データ作成
 	CreateTransformationMatrixData();
+
+	// 単位行列を書き込んでおく
+	textureIndex_ = TextureManager::GetInstance()->GetTextureIndexByFilePath(textureFilePath);
 }
 
 void Sprite::Update()
@@ -74,7 +78,7 @@ void Sprite::Draw()
 	commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResource_->GetGPUVirtualAddress());
 
 	// SRVのDescriptorTableの先頭を設定
-	commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU_);
+	commandList->SetGraphicsRootDescriptorTable(2, TextureManager::GetInstance()->GetSrvHandleGPU(textureIndex_));
 
 	// 描画（DrawCall/ドローコール）
 	commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);

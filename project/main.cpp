@@ -32,7 +32,7 @@
 #include "Logger.h"
 #include "SpriteCommon.h"
 #include "Sprite.h"
-
+#include "TextureManager.h"
 
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
@@ -162,6 +162,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		std::make_unique<DirectXCommon>();
 	dxCommon->Initialize(winApp.get());
 
+	// テクスチャマネージャの初期化
+	TextureManager::GetInstance()->Initialize(dxCommon.get());
+
 	// スプライト共通部の初期化
 	SpriteCommon* spriteCommon = nullptr;
 	spriteCommon = new SpriteCommon;
@@ -229,72 +232,31 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		vertexResourceSphere->Unmap(0, nullptr);
 		D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSphere{ vertexResourceSphere->GetGPUVirtualAddress(), static_cast<UINT>(sizeof(Vertex) * sphereModelData.vertices.size()), sizeof(Vertex) };
 
-		// Sprite Vertex Buffer
-		Microsoft::WRL::ComPtr<ID3D12Resource> vertexResourceSprite = dxCommon->CreateBufferResource(sizeof(Vertex) * 4);
-		D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSprite{ vertexResourceSprite->GetGPUVirtualAddress(), sizeof(Vertex) * 4, sizeof(Vertex) };
-		Vertex* vertexDataSprite = nullptr; vertexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataSprite));
-		Vector3 nSprite = { 0.0f, 0.0f, -1.0f };
-		vertexDataSprite[0] = { {0.0f, 360.0f, 0.0f, 1.0f}, {0.0f, 1.0f}, nSprite };
-		vertexDataSprite[1] = { {0.0f, 0.0f, 0.0f, 1.0f},   {0.0f, 0.0f}, nSprite };
-		vertexDataSprite[2] = { {640.0f, 360.0f, 0.0f, 1.0f}, {1.0f, 1.0f}, nSprite };
-		vertexDataSprite[3] = { {640.0f, 0.0f, 0.0f, 1.0f},   {1.0f, 0.0f}, nSprite };
-		vertexResourceSprite->Unmap(0, nullptr);
-
-		Microsoft::WRL::ComPtr<ID3D12Resource> indexResourceSprite = dxCommon->CreateBufferResource(sizeof(uint32_t) * 6);
-		D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite{ indexResourceSprite->GetGPUVirtualAddress(), sizeof(uint32_t) * 6, DXGI_FORMAT_R32_UINT };
-		uint32_t* indexDataSprite = nullptr; indexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&indexDataSprite));
-		indexDataSprite[0] = 0; indexDataSprite[1] = 1; indexDataSprite[2] = 2; indexDataSprite[3] = 1; indexDataSprite[4] = 3; indexDataSprite[5] = 2;
-		indexResourceSprite->Unmap(0, nullptr);
-
-		// Materialバッファ
+		// Materialバッファ（3Dモデル用）
 		Microsoft::WRL::ComPtr<ID3D12Resource> materialResource = dxCommon->CreateBufferResource((sizeof(Material) + 255) & ~255);
 		Material* materialData = nullptr; materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
 		materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f }; materialData->enableLighting = 1; materialData->lightingType = 2;
 		materialData->uvTransform = Matrix4x4::MakeIdentity4x4();
 
-		Microsoft::WRL::ComPtr<ID3D12Resource> materialResourceSprite = dxCommon->CreateBufferResource((sizeof(Material) + 255) & ~255);
-		Material* materialDataSprite = nullptr; materialResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&materialDataSprite));
-		materialDataSprite->color = { 1.0f, 1.0f, 1.0f, 1.0f }; materialDataSprite->enableLighting = 0; materialDataSprite->lightingType = 0;
-		materialDataSprite->uvTransform = Matrix4x4::MakeIdentity4x4();
-
-		// TransformationMatrix
+		// TransformationMatrix（3Dモデル用）
 		Microsoft::WRL::ComPtr<ID3D12Resource> wvpResource = dxCommon->CreateBufferResource((sizeof(TransformationMatrix) + 255) & ~255);
 		TransformationMatrix* wvpData = nullptr; wvpResource->Map(0, nullptr, reinterpret_cast<void**>(&wvpData));
 		wvpData->wvp = Matrix4x4::MakeIdentity4x4(); wvpData->world = Matrix4x4::MakeIdentity4x4();
 
 		Transform transformModel;
 
-		Microsoft::WRL::ComPtr<ID3D12Resource> transformationMatrixResourceSprite = dxCommon->CreateBufferResource((sizeof(TransformationMatrix) + 255) & ~255);
-		TransformationMatrix* transformationMatrixDataSprite = nullptr; transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
-		transformationMatrixDataSprite->wvp = Matrix4x4::MakeIdentity4x4(); transformationMatrixDataSprite->world = Matrix4x4::MakeIdentity4x4();
-		Transform transformSprite;
-		Transform uvTransformSprite;
-
 		// DirectionalLight
 		Microsoft::WRL::ComPtr<ID3D12Resource> directionalLightResource = dxCommon->CreateBufferResource((sizeof(DirectionalLight) + 255) & ~255);
 		DirectionalLight* directionalLightData = nullptr; directionalLightResource->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData));
 		directionalLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f }; directionalLightData->direction = { 0.0f, -1.0f, 0.0f }; directionalLightData->intensity = 1.0f;
 
-		// テクスチャ作成部
-		DirectX::ScratchImage mipImages1 = DirectXCommon::LoadTexture("Resources/uvChecker.png");
-		Microsoft::WRL::ComPtr<ID3D12Resource> textureResource = dxCommon->CreateTextureResource(mipImages1.GetMetadata());
-		dxCommon->UploadTextureData(textureResource, mipImages1);
+		// テクスチャ読み込み
+		TextureManager::GetInstance()->LoadTexture("Resources/uvChecker.png");
+		TextureManager::GetInstance()->LoadTexture("Resources/monsterBall.png");
 
-		DirectX::ScratchImage mipImages2 = DirectXCommon::LoadTexture("Resources/monsterBall.png");
-		Microsoft::WRL::ComPtr<ID3D12Resource> textureResource2 = dxCommon->CreateTextureResource(mipImages2.GetMetadata());
-		dxCommon->UploadTextureData(textureResource2, mipImages2);
-
-		D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU1 = dxCommon->GetSRVCPUDescriptorHandle(1);
-		D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU1 = dxCommon->GetSRVGPUDescriptorHandle(1);
-		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc1{ mipImages1.GetMetadata().format, D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING };
-		srvDesc1.Texture2D.MipLevels = static_cast<UINT>(mipImages1.GetMetadata().mipLevels);
-		dxCommon->GetDevice()->CreateShaderResourceView(textureResource.Get(), &srvDesc1, textureSrvHandleCPU1);
-
-		D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU2 = dxCommon->GetSRVCPUDescriptorHandle(2);
-		D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU2 = dxCommon->GetSRVGPUDescriptorHandle(2);
-		D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2{ mipImages2.GetMetadata().format, D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING };
-		srvDesc2.Texture2D.MipLevels = static_cast<UINT>(mipImages2.GetMetadata().mipLevels);
-		dxCommon->GetDevice()->CreateShaderResourceView(textureResource2.Get(), &srvDesc2, textureSrvHandleCPU2);
+		// 3Dモデル描画用にテクスチャ番号を取得しておく
+		uint32_t uvCheckerTexIndex = TextureManager::GetInstance()->GetTextureIndexByFilePath("Resources/uvChecker.png");
+		uint32_t monsterBallTexIndex = TextureManager::GetInstance()->GetTextureIndexByFilePath("Resources/monsterBall.png");
 
 		DebugCamera debugCamera; debugCamera.Initialize();
 		bool isAutoRotate = false; bool useMonsterBall = false;
@@ -308,8 +270,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		std::vector<Sprite*> sprites;
 		for (uint32_t i = 0; i < 5; ++i) {
 			Sprite* sprite = new Sprite();
-			sprite->Initialize(spriteCommon);
-			sprite->SetTextureSrvHandleGPU(textureSrvHandleGPU1);
+			if (i % 2 == 0) {
+				sprite->Initialize(spriteCommon, "Resources/uvChecker.png");
+			} else {
+				sprite->Initialize(spriteCommon, "Resources/monsterBall.png");
+			}
 			// 重ならないように横に並べてサイズも調整
 			sprite->SetPosition({ 100.0f + i * 200.0f, 100.0f });
 			sprite->SetSize({ 150.0f, 150.0f });
@@ -412,7 +377,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 			// 3Dモデル描画
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
-			commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU1);
+			commandList->SetGraphicsRootDescriptorTable(
+				2,
+				TextureManager::GetInstance()->GetSrvHandleGPU(useMonsterBall ? monsterBallTexIndex : uvCheckerTexIndex)
+			);
 
 			if (currentModelType == 0) {
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewPlane);
@@ -441,6 +409,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 			// ----------------------------------------------------
 			dxCommon->PostDraw();
 		}
+
 		// スプライトの解放
 		for (Sprite* sprite : sprites) {
 			delete sprite;
@@ -453,11 +422,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 
 		xAudio2.Reset(); SoundUnload(&soundData1);
 
-		// Spriteクラスへ移行したリソースのUnmap削除
 		directionalLightResource->Unmap(0, nullptr);
 		wvpResource->Unmap(0, nullptr);
 		materialResource->Unmap(0, nullptr);
 	}
+
+	// テクスチャマネージャの終了
+	TextureManager::GetInstance()->Finalize();
 
 	// スプライト共通部の解放
 	delete spriteCommon;

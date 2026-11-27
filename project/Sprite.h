@@ -7,6 +7,7 @@
 #include "Vector4.h"
 #include "Matrix4x4.h"
 #include "Transform.h"
+#include <string>
 
 class SpriteCommon;
 
@@ -37,7 +38,7 @@ public: // インナークラス構造体
 
 public: // メンバ関数
 	// 初期化
-	void Initialize(SpriteCommon* spriteCommon);
+	void Initialize(SpriteCommon* spriteCommon, std::string textureFilePath);
 	// 更新
 	void Update();
 	// 描画
@@ -59,9 +60,6 @@ public: // getter / setter
 	// 表示サイズ
 	const Vector2& GetSize() const { return size_; }
 	void SetSize(const Vector2& size) { this->size_ = size; }
-
-	// テクスチャ設定用
-	void SetTextureSrvHandleGPU(D3D12_GPU_DESCRIPTOR_HANDLE handle) { textureSrvHandleGPU_ = handle; }
 
 private: // メンバ関数
 	// 頂点データ作成
@@ -98,4 +96,7 @@ private: // メンバ変数
 	Vector2 position_ = { 0.0f, 0.0f };
 	float rotation_ = 0.0f;
 	Vector2 size_ = { 640.0f, 360.0f };
+
+	// テクスチャ番号
+	uint32_t textureIndex_ = 0;
 };
