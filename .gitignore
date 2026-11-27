@@ -357,6 +357,7 @@ MigrationBackup/
 .ionide/
 DirectXGame/DirectXGame.exe
 DirectXGame/imgui.ini
+**/imgui.ini
 
 # DirectXTex Compiled Shaders
 **/DirectXTex/Shaders/Compiled/

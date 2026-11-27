@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <memory>
 #include <cstdint>
 #include <string>
 #include <format>
@@ -25,6 +26,9 @@
 #include "D3DResourceLeakChecker.h"
 #include "StringUtility.h"
 #include "Logger.h"
+#include "SpriteCommon.h"
+#include "Sprite.h"
+
 
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
@@ -158,21 +162,29 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 	CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 	D3DResourceLeakChecker leakCheck;
 
+#pragma region 基盤システムの初期化
 	// WinAppクラスの初期化
-	WinApp* winApp = new WinApp();
+	std::unique_ptr<WinApp> winApp = std::make_unique<WinApp>();
 	winApp->Initialize();
 
 	// DirectXCommonクラスの生成と初期化
-	DirectXCommon* dxCommon = new DirectXCommon();
-	dxCommon->Initialize(winApp);
+	std::unique_ptr<DirectXCommon> dxCommon =
+		std::make_unique<DirectXCommon>();
+	dxCommon->Initialize(winApp.get());
+
+	// スプライト共通部の初期化
+	SpriteCommon* spriteCommon = nullptr;
+	spriteCommon = new SpriteCommon;
+	spriteCommon->Initialize(dxCommon.get());
+#pragma endregion 基盤システムの初期化
 
 	const int32_t kClientWidth = WinApp::kClientWidth;
 	const int32_t kClientHeight = WinApp::kClientHeight;
 
 	{
 		// 入力の初期化
-		Input* input = new Input();
-		input->Initialize(winApp);
+		std::unique_ptr<Input> input = std::make_unique<Input>();
+		input->Initialize(winApp.get());
 
 		// XAudio2
 		Microsoft::WRL::ComPtr<IXAudio2> xAudio2; IXAudio2MasteringVoice* masterVoice = nullptr;
@@ -301,6 +313,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 
 		int currentModelType = 1;
 
+#pragma region 最初のシーンの初期化
+		// スプライトの初期化
+		Sprite* sprite = new Sprite();
+		sprite->Initialize();
+#pragma endregion 最初のシーンの初期化
+
 		// ゲームループ
 		while (true) {
 			if (winApp->ProcessMessage()) {
@@ -397,6 +415,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 				commandList->DrawInstanced(static_cast<UINT>(sphereModelData.vertices.size()), 1, 0, 0);
 			}
 
+			// スプライト共通描画設定の呼び出し
+			spriteCommon->CommonDraw();
+
 			// 2Dスプライト描画
 			if (drawSprite) {
 				commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
@@ -416,14 +437,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 			// ----------------------------------------------------
 			dxCommon->PostDraw();
 		}
+		// スプライトの解放
+		delete sprite;
+		sprite = nullptr;
 
 #ifdef USE_IMGUI
 		ImGui_ImplDX12_Shutdown(); ImGui_ImplWin32_Shutdown(); ImGui::DestroyContext();
 #endif
-
-		// 解放処理 (スライド10)
-		delete input;
-		input = nullptr;
 
 		xAudio2.Reset(); SoundUnload(&soundData1);
 
@@ -431,12 +451,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 		transformationMatrixResourceSprite->Unmap(0, nullptr); wvpResource->Unmap(0, nullptr); materialResource->Unmap(0, nullptr);
 	}
 
-	delete dxCommon;
-	dxCommon = nullptr;
+	// スプライト共通部の解放
+	delete spriteCommon;
+	spriteCommon = nullptr;
 
+	// DirectXCommonを先に解放
+	dxCommon.reset();
+
+	// WinAppの終了処理
 	winApp->Finalize();
-	delete winApp;
-	winApp = nullptr;
 
 	return 0;
 }
