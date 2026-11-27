@@ -16,8 +16,12 @@
 #include <xaudio2.h>
 #pragma comment(lib, "xaudio2.lib")
 
+#include "Vector2.h"
 #include "Vector3.h"
+#include "Vector4.h"
 #include "Matrix4x4.h"
+#include "Transform.h"
+#include "MathUtility.h"
 
 #include "DebugCamera.h"
 #include "Input.h"
@@ -66,8 +70,6 @@ void SoundPlayWave(IXAudio2* xAudio2, const SoundData& soundData) {
 	}
 }
 
-struct Vector2 { float x, y; };
-struct Vector4 { float x, y, z, w; };
 struct Vertex { Vector4 position; Vector2 texcoord; Vector3 normal; };
 
 struct MaterialData { std::string textureFilePath; };
@@ -82,19 +84,7 @@ struct Material {
 };
 
 struct TransformationMatrix { Matrix4x4 wvp; Matrix4x4 world; };
-struct Transform {
-	Vector3 scale{ 1.0f, 1.0f, 1.0f };
-	Vector3 rotate{ 0.0f, 0.0f, 0.0f };
-	Vector3 translate{ 0.0f, 0.0f, 0.0f };
-};
 struct DirectionalLight { Vector4 color; Vector3 direction; float intensity; };
-
-Matrix4x4 MakeUVTransformMatrix(const Vector3& scale, float rotateZ, const Vector3& translate) {
-	Matrix4x4 mScale = Matrix4x4::MakeScaleMatrix({ scale.x, scale.y, 1.0f });
-	Matrix4x4 mRotZ = Matrix4x4::MakeRotateZMatrix(rotateZ);
-	Matrix4x4 mTranslate = Matrix4x4::MakeTranslateMatrix({ translate.x, translate.y, 0.0f });
-	return Matrix4x4::Multiply(Matrix4x4::Multiply(mScale, mRotZ), mTranslate);
-}
 
 ModelData CreateSphereModel(uint32_t kSubdivision = 32) {
 	ModelData modelData;
@@ -316,7 +306,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 #pragma region 最初のシーンの初期化
 		// スプライトの初期化
 		Sprite* sprite = new Sprite();
-		sprite->Initialize();
+		sprite->Initialize(spriteCommon);
+		sprite->SetTextureSrvHandleGPU(textureSrvHandleGPU1);
 #pragma endregion 最初のシーンの初期化
 
 		// ゲームループ
@@ -376,19 +367,14 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 			ImGui::End(); ImGui::Render();
 #endif
 
-			Matrix4x4 materialTransformMatrix = MakeUVTransformMatrix(uvTransformSprite.scale, uvTransformSprite.rotate.z, uvTransformSprite.translate);
-			materialDataSprite->uvTransform = materialTransformMatrix;
+			// スプライトの更新処理呼び出し
+			sprite->Update();
 
 			Matrix4x4 viewMatrix = debugCamera.GetMatView();
 			Matrix4x4 worldMatrixModel = Matrix4x4::MakeAffineMatrix(transformModel.scale, transformModel.rotate, transformModel.translate);
 			Matrix4x4 projectionMatrixModel = Matrix4x4::MakePerspectiveFovMatrix(0.45f, (float)kClientWidth / kClientHeight, 0.1f, 100.0f);
 			wvpData->wvp = Matrix4x4::Multiply(Matrix4x4::Multiply(worldMatrixModel, viewMatrix), projectionMatrixModel);
 			wvpData->world = worldMatrixModel;
-
-			Matrix4x4 worldMatrixSprite = Matrix4x4::MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
-			Matrix4x4 projectionMatrixSprite = Matrix4x4::MakeOrthographicMatrix(0.0f, 0.0f, (float)kClientWidth, (float)kClientHeight, 0.0f, 100.0f);
-			transformationMatrixDataSprite->wvp = Matrix4x4::Multiply(worldMatrixSprite, projectionMatrixSprite);
-			transformationMatrixDataSprite->world = worldMatrixSprite;
 
 			// ----------------------------------------------------
 			// 描画前処理
@@ -419,14 +405,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 			spriteCommon->CommonDraw();
 
 			// 2Dスプライト描画
-			if (drawSprite) {
-				commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
-				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
-				commandList->IASetIndexBuffer(&indexBufferViewSprite);
-				commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
-				commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU1);
-				commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
-			}
+			sprite->Draw();
 
 #ifdef USE_IMGUI
 			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
@@ -447,8 +426,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 
 		xAudio2.Reset(); SoundUnload(&soundData1);
 
-		directionalLightResource->Unmap(0, nullptr); materialResourceSprite->Unmap(0, nullptr);
-		transformationMatrixResourceSprite->Unmap(0, nullptr); wvpResource->Unmap(0, nullptr); materialResource->Unmap(0, nullptr);
+		// Spriteクラスへ移行したリソースのUnmap削除
+		directionalLightResource->Unmap(0, nullptr);
+		wvpResource->Unmap(0, nullptr);
+		materialResource->Unmap(0, nullptr);
 	}
 
 	// スプライト共通部の解放
