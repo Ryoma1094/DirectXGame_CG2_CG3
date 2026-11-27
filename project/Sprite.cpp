@@ -19,19 +19,33 @@ void Sprite::Initialize(SpriteCommon* spriteCommon)
 
 void Sprite::Update()
 {
-	// 頂点リソースにデータを書き込む（4点分）
-	Vector3 nSprite = { 0.0f, 0.0f, -1.0f };
-	vertexData_[0] = { {0.0f, 360.0f, 0.0f, 1.0f},   {0.0f, 1.0f}, nSprite }; // 左下
-	vertexData_[1] = { {0.0f, 0.0f, 0.0f, 1.0f},     {0.0f, 0.0f}, nSprite }; // 左上
-	vertexData_[2] = { {640.0f, 360.0f, 0.0f, 1.0f}, {1.0f, 1.0f}, nSprite }; // 右下
-	vertexData_[3] = { {640.0f, 0.0f, 0.0f, 1.0f},   {1.0f, 0.0f}, nSprite }; // 右上
+	// 頂点リソースにデータを書き込む
+	// 左下
+	vertexData_[0].position = { 0.0f, 1.0f, 0.0f, 1.0f };
+	vertexData_[0].texcoord = { 0.0f, 1.0f };
+	vertexData_[0].normal = { 0.0f, 0.0f, -1.0f };
+	// 左上
+	vertexData_[1].position = { 0.0f, 0.0f, 0.0f, 1.0f };
+	vertexData_[1].texcoord = { 0.0f, 0.0f };
+	vertexData_[1].normal = { 0.0f, 0.0f, -1.0f };
+	// 右下
+	vertexData_[2].position = { 1.0f, 1.0f, 0.0f, 1.0f };
+	vertexData_[2].texcoord = { 1.0f, 1.0f };
+	vertexData_[2].normal = { 0.0f, 0.0f, -1.0f };
+	// 右上
+	vertexData_[3].position = { 1.0f, 0.0f, 0.0f, 1.0f };
+	vertexData_[3].texcoord = { 1.0f, 0.0f };
+	vertexData_[3].normal = { 0.0f, 0.0f, -1.0f };
 
 	// インデックスリソースにデータを書き込む（6個分）
 	indexData_[0] = 0; indexData_[1] = 1; indexData_[2] = 2;
 	indexData_[3] = 1; indexData_[4] = 3; indexData_[5] = 2;
 
-	// Transform情報を作る
-	Transform transform{ {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f} };
+	// Transform情報を作り、メンバ変数の値を反映する
+	Transform transform{};
+	transform.scale = { size_.x, size_.y, 1.0f };
+	transform.rotate = { 0.0f, 0.0f, rotation_ };
+	transform.translate = { position_.x, position_.y, 0.0f };
 
 	// TransformからWorldMatrixを作る
 	Matrix4x4 worldMatrix = Matrix4x4::MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
@@ -102,7 +116,7 @@ void Sprite::CreateMaterialData()
 	materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&materialData_));
 
 	// マテリアルデータの初期値を書き込む
-	materialData_->color = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+	materialData_->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
 	materialData_->enableLighting = false;
 	materialData_->uvTransform = Matrix4x4::MakeIdentity4x4();
 }

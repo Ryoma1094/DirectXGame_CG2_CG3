@@ -305,9 +305,16 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 
 #pragma region 最初のシーンの初期化
 		// スプライトの初期化
-		Sprite* sprite = new Sprite();
-		sprite->Initialize(spriteCommon);
-		sprite->SetTextureSrvHandleGPU(textureSrvHandleGPU1);
+		std::vector<Sprite*> sprites;
+		for (uint32_t i = 0; i < 5; ++i) {
+			Sprite* sprite = new Sprite();
+			sprite->Initialize(spriteCommon);
+			sprite->SetTextureSrvHandleGPU(textureSrvHandleGPU1);
+			// 重ならないように横に並べてサイズも調整
+			sprite->SetPosition({ 100.0f + i * 200.0f, 100.0f });
+			sprite->SetSize({ 150.0f, 150.0f });
+			sprites.push_back(sprite);
+		}
 #pragma endregion 最初のシーンの初期化
 
 		// ゲームループ
@@ -347,14 +354,26 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 				}
 			}
 
+			// ImGuiからスプライト（0番目）の座標・回転・色・サイズを操作できるようにする
 			if (ImGui::CollapsingHeader("Sprite Options", ImGuiTreeNodeFlags_DefaultOpen)) {
 				ImGui::Checkbox("Draw Sprite", &drawSprite);
-				if (drawSprite) {
-					ImGui::SliderFloat2("Sprite Scale", &transformSprite.scale.x, 0.1f, 5.0f);
-					ImGui::SliderFloat2("Sprite Translate", &transformSprite.translate.x, -200.0f, 1000.0f);
-					ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate.x, 0.01f, -10.0f, 10.0f);
-					ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f, -10.0f, 10.0f);
-					ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
+				if (drawSprite && !sprites.empty()) {
+					Vector2 pos = sprites[0]->GetPosition();
+					if (ImGui::DragFloat2("Sprite Position", &pos.x, 1.0f)) {
+						sprites[0]->SetPosition(pos);
+					}
+					float rot = sprites[0]->GetRotation();
+					if (ImGui::SliderFloat("Sprite Rotation", &rot, -pi_f, pi_f)) {
+						sprites[0]->SetRotation(rot);
+					}
+					Vector2 size = sprites[0]->GetSize();
+					if (ImGui::DragFloat2("Sprite Size", &size.x, 1.0f, 1.0f, 1280.0f)) {
+						sprites[0]->SetSize(size);
+					}
+					Vector4 color = sprites[0]->GetColor();
+					if (ImGui::ColorEdit4("Sprite Color", &color.x)) {
+						sprites[0]->SetColor(color);
+					}
 				}
 			}
 
@@ -368,7 +387,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 #endif
 
 			// スプライトの更新処理呼び出し
-			sprite->Update();
+			for (Sprite* sprite : sprites) {
+				sprite->Update();
+			}
 
 			Matrix4x4 viewMatrix = debugCamera.GetMatView();
 			Matrix4x4 worldMatrixModel = Matrix4x4::MakeAffineMatrix(transformModel.scale, transformModel.rotate, transformModel.translate);
@@ -405,7 +426,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 			spriteCommon->CommonDraw();
 
 			// 2Dスプライト描画
-			sprite->Draw();
+			if (drawSprite) {
+				for (Sprite* sprite : sprites) {
+					sprite->Draw();
+				}
+			}
 
 #ifdef USE_IMGUI
 			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
@@ -417,8 +442,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ LPSTR, _In
 			dxCommon->PostDraw();
 		}
 		// スプライトの解放
-		delete sprite;
-		sprite = nullptr;
+		for (Sprite* sprite : sprites) {
+			delete sprite;
+		}
+		sprites.clear();
 
 #ifdef USE_IMGUI
 		ImGui_ImplDX12_Shutdown(); ImGui_ImplWin32_Shutdown(); ImGui::DestroyContext();
